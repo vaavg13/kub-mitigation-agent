@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langsmith import trace
+from langfuse.langchain import CallbackHandler
 
 from .config import KubernetesAgentConfig
 from .llm_provider import get_llm
-from .system_prompt import get_system_prompt
-from .reasoning_prompts import get_reasoning_summary_prompt
-from .tool_schemas import get_all_tool_call_models
+from .system_prompt import get_system_prompt, get_reasoning_prompt, get_controller_prompt, get_summarize_prompt
+from .tool_schemas import get_reasoning_tool_models, get_execution_tool_models, GenerateOperationalSummary
 from .mcp_client import MCPClient
 from .tools_router import ToolsRouter
 
@@ -21,27 +19,28 @@ logger = logging.getLogger(__name__)
 
 class AgentState(TypedDict, total=False):
     intent: str
-    snapshot: Dict[str, Any]
     context: List[str]
-    actions_taken: List[Dict[str, Any]]
+    actions: List[Dict[str, Any]]
     plan: Dict[str, Any]
-    plan_history: List[Dict[str, Any]]
     current_step_index: int
-    final_summary: Dict[str, Any]
-    round: int
-    max_rounds: int
     decision: Dict[str, Any]
+    round: int
+    final_summary: Dict[str, Any]
+    plan_completed: bool
 
 
 class GraphKubernetesAgent:
     def __init__(self, cfg: KubernetesAgentConfig):
         self.cfg = cfg
         self.llm = None
-        self.llm_with_tools = None
+        self.llm_reasoning = None  # Reasoning tools only
+        self.llm_controller = None  # Execution tools only
+        self.llm_summarize = None  # Structured output for operational summary
         self.mcp_client: Optional[MCPClient] = None
         self.router: Optional[ToolsRouter] = None
         self.graph = None
         self.is_initialized = False
+        self.langfuse_handler: Optional[CallbackHandler] = None
 
     async def initialize(self):
         if self.is_initialized:
@@ -50,10 +49,11 @@ class GraphKubernetesAgent:
         self.mcp_client = MCPClient(self.cfg.mcp_server_command)
         await self.mcp_client.start()
         await self.mcp_client.initialize()
-        # LLM
+        # LLM with separate tool bindings
         self.llm = get_llm(self.cfg)
-        tool_models = get_all_tool_call_models()
-        self.llm_with_tools = self.llm.bind_tools(tool_models)
+        self.llm_reasoning = self.llm.bind_tools(get_reasoning_tool_models())
+        self.llm_controller = self.llm.bind_tools(get_execution_tool_models())
+        self.llm_summarize = self.llm.with_structured_output(GenerateOperationalSummary)
         # Router
         self.router = ToolsRouter(self.mcp_client)
         # Graph
@@ -68,166 +68,238 @@ class GraphKubernetesAgent:
     def _build_graph(self):
         graph = StateGraph(AgentState)
 
+        async def reasoning(state: AgentState) -> AgentState:
+            """Reasoning module: analyze, evaluate, plan using reasoning tools."""
+            messages = self._build_reasoning_messages(state)
+            ai: AIMessage = await self.llm_reasoning.ainvoke(
+                messages,
+                config={"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None,
+            )
+            
+            if not ai.tool_calls:
+                logger.warning("Reasoning did not call a tool")
+                return {}
+            
+            tc = ai.tool_calls[0]
+            tool_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+            tool_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+            
+            # Handle reasoning tool outputs
+            state_delta = {"context": state.get("context", [])}
+            
+            if tool_name == "CreateReasoningPlan":
+                # Create new plan
+                plan = {
+                    "objective": tool_args.get("objective"),
+                    "steps": tool_args.get("steps", []),
+                    "rationale": tool_args.get("rationale"),
+                    "status": "active"
+                }
+                state_delta["plan"] = plan
+                state_delta["current_step_index"] = 0
+                context_msg = f"PLAN CREATED: {plan['objective']}\nSteps: {'; '.join(plan['steps'])}"
+                state_delta["context"] = state_delta["context"] + [context_msg]
+                logger.info(f"Plan created: {plan['objective']}")
+                
+            elif tool_name == "EvaluateStep":
+                # Evaluate step and update tracking
+                plan = state.get("plan", {})
+                current_step_index = state.get("current_step_index", 0)
+                plan_action = tool_args.get("plan_action")
+                
+                eval_msg = f"EVALUATION: Step '{tool_args.get('step_completed')}' - Success: {tool_args.get('success')}"
+                eval_msg += f"\nObservations: {'; '.join(tool_args.get('observations', []))}"
+                eval_msg += f"\nDecision: {plan_action}"
+                state_delta["context"] = state_delta["context"] + [eval_msg]
+                
+                if plan_action == "proceed_to_next_step":
+                    state_delta["current_step_index"] = current_step_index + 1
+                    logger.info(f"Advancing to step {current_step_index + 1}")
+                elif plan_action == "retry_current_step":
+                    logger.info(f"Retrying step {current_step_index}")
+                elif plan_action == "create_new_plan":
+                    plan["status"] = "broken"
+                    state_delta["plan"] = plan
+                    state_delta["current_step_index"] = 0
+                    logger.info("Plan broken - new plan needed")
+                elif plan_action == "completed":
+                    state_delta["plan_completed"] = True
+                    logger.info("Plan completed - routing to summarize")
+            
+            return state_delta
+
         async def controller(state: AgentState) -> AgentState:
-            messages = self._build_messages(state)
-            # async with trace("agent-controller-llm-step"):
-            ai: AIMessage = await self.llm_with_tools.ainvoke(messages)
-            decision: Dict[str, Any] = {"content": (ai.content or "").strip()}
-            if getattr(ai, "tool_calls", None):
-                # Prefer the first tool call for this step; normalize across providers
-                tc = ai.tool_calls[0]
-                tool_name: Optional[str] = None
-                tool_args: Any = {}
-                if isinstance(tc, dict):
-                    # Common LC shape: {"name": str, "args": dict}
-                    tool_name = tc.get("name")
-                    tool_args = tc.get("args", {})
-                    # OpenAI raw shape proxied by some LC versions: {"function": {"name": str, "arguments": str|dict}}
-                    fn = tc.get("function") if not tool_name and "function" in tc else tc.get("function")
-                    if isinstance(fn, dict):
-                        tool_name = tool_name or fn.get("name")
-                        tool_args = fn.get("arguments", tool_args)
-                else:
-                    # Object-like
-                    tool_name = getattr(tc, "name", None)
-                    tool_args = getattr(tc, "args", {})
-
-                # If arguments are a JSON string, parse them
-                if isinstance(tool_args, str):
-                    try:
-                        import json as _json
-                        tool_args = _json.loads(tool_args)
-                    except Exception:
-                        tool_args = {}
-
-                decision = {"tool": tool_name, "arguments": tool_args or {}}
-            return {"decision": decision}
+            """Controller: execute the current plan step using execution tools."""
+            messages = self._build_controller_messages(state)
+            ai: AIMessage = await self.llm_controller.ainvoke(
+                messages,
+                config={"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None,
+            )
+            
+            if not ai.tool_calls:
+                logger.warning("Controller did not call a tool")
+                return {}
+            
+            tc = ai.tool_calls[0]
+            tool_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+            tool_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+            
+            return {"decision": {"tool": tool_name, "arguments": tool_args}}
 
         async def tool_exec(state: AgentState) -> AgentState:
+            """Execute the controller's tool decision."""
             decision = state.get("decision", {})
             if "tool" not in decision:
                 return {}
+            
             function_name = decision["tool"]
             args = decision.get("arguments", {})
             result, state_delta, action_record = await self.router.execute(function_name, args, state)
-            canonical_function = action_record.get("function", function_name)
-            new_context_items: List[str] = [f"Executed {function_name}", f"Result: {json.dumps(result)[:2000]}"]
-            new_actions = [action_record]
-            # Planning bookkeeping
-            if canonical_function == "create_action_plan":
-                plan_history = list(state.get("plan_history", []))
-                if state_delta.get("plan"):
-                    plan_history.append(state_delta["plan"])
-                state_delta["plan_history"] = plan_history
-            # Termination on summary
-            done = False
-            if (
-                canonical_function == "generate_operational_summary"
-                or (isinstance(state_delta, dict) and "final_summary" in state_delta)
-                or (isinstance(result, dict) and bool(result.get("operation_complete")))
-            ):
-                done = True
+            
+            action_record["result"] = result
+            new_context = [f"Executed {function_name}", f"Result: {json.dumps(result)[:2000]}"]
+            
             return {
                 **state_delta,
-                "context": state.get("context", []) + new_context_items,
-                "actions_taken": state.get("actions_taken", []) + new_actions,
+                "context": state.get("context", []) + new_context,
+                "actions": state.get("actions", []) + [action_record],
                 "round": state.get("round", 0) + 1,
-                "done": done,  # transient flag for routing
             }
 
-        async def reasoning(state: AgentState) -> AgentState:
-            if not self.cfg.show_reasoning:
-                return {}
-            # Build reasoning prompt and append to context
-            context_text = "\n".join(state.get("context", [])[-5:])
-            last_action = state.get("actions_taken", [])[-1] if state.get("actions_taken") else {}
-            last_function = last_action.get("function", last_action.get("type", "unknown"))
-            last_result_preview = state.get("context", [])[-1] if state.get("context") else ""
-            prompt = get_reasoning_summary_prompt(
-                context_text=context_text,
-                last_function=last_function,
-                last_result_preview=last_result_preview,
+        async def summarize(state: AgentState) -> AgentState:
+            """Generate operational summary after plan completion using structured output."""
+            messages = self._build_summarize_messages(state)
+            summary_obj: GenerateOperationalSummary = await self.llm_summarize.ainvoke(
+                messages,
+                config={"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None,
             )
-            # async with trace("agent-reasoning-llm-step"):
-            ai: AIMessage = await self.llm.ainvoke([HumanMessage(content=prompt)])
-            reasoning_text = (ai.content or "").strip()
-            if not reasoning_text:
-                return {}
-            return {"context": state.get("context", []) + [f"CRITICAL_ANALYSIS: {reasoning_text}"]}
+            
+            # Convert Pydantic model to dict for state storage
+            problem_locations = []
+            if summary_obj.problem_location:
+                problem_locations = [
+                    {"name": loc.name, "type": loc.type}
+                    for loc in summary_obj.problem_location
+                ]
+            
+            summary = {
+                "objective": summary_obj.objective,
+                "actions_completed": summary_obj.actions_completed,
+                "results_achieved": summary_obj.results_achieved,
+                "status": summary_obj.status,
+                "problem_location": problem_locations,
+                "success": summary_obj.success
+            }
+            
+            logger.info(f"Operational summary generated: {summary_obj.status}")
+            return {
+                "final_summary": summary,
+                "context": state.get("context", []) + [f"OPERATION COMPLETE: {summary_obj.status}"]
+            }
 
+        graph.add_node("reasoning", reasoning)
         graph.add_node("controller", controller)
         graph.add_node("tool_exec", tool_exec)
-        graph.add_node("reasoning", reasoning)
+        graph.add_node("summarize", summarize)
+
+        def route_after_reasoning(state: AgentState):
+            # If plan is completed, go to summarize node
+            if state.get("plan_completed"):
+                return "summarize"
+            # Otherwise go to controller to execute
+            return "controller"
 
         def route_after_controller(state: AgentState):
-            decision = state.get("decision", {})
-            if "tool" in decision:
+            if "tool" in state.get("decision", {}):
                 return "tool_exec"
-            return "controller"  # ask again if only text
+            else:
+                # Controller failed to produce a tool call - go back to reasoning
+                logger.warning("Controller did not produce a tool call, routing back to reasoning")
+                return "reasoning"
 
         def route_after_tool(state: AgentState):
-            # If the last tool produced a final summary or set the done flag, terminate.
-            if state.get("done") or state.get("final_summary"):
-                return "END"
-            # If out of rounds without a summary, force summary by routing to controller with a system nudge
-            if state.get("round", 0) >= state.get("max_rounds", self.cfg.max_rounds):
-                forced = "SYSTEM: Maximum rounds reached. You MUST now call generate_operational_summary to conclude."
-                state["context"] = state.get("context", []) + [forced]
-                return "controller"
+            if state.get("round", 0) >= self.cfg.max_rounds:
+                state["context"] = state.get("context", []) + [
+                    "SYSTEM: Maximum rounds reached. Evaluate and complete the plan."
+                ]
             return "reasoning"
 
-        graph.set_entry_point("controller")
-        graph.add_conditional_edges(
-            "controller",
-            route_after_controller,
-            {
-                "controller": "controller",
-                "tool_exec": "tool_exec",
-            },
-        )
-        graph.add_conditional_edges(
-            "tool_exec",
-            route_after_tool,
-            {
-                "reasoning": "reasoning",
-                "controller": "controller",
-                "END": END,
-            },
-        )
-        graph.add_edge("reasoning", "controller")
+        # Flow: reasoning -> controller -> tool_exec -> reasoning (loop)
+        # When plan_completed: reasoning -> summarize -> END
+        graph.set_entry_point("reasoning")
+        graph.add_conditional_edges("reasoning", route_after_reasoning)
+        graph.add_conditional_edges("controller", route_after_controller)
+        graph.add_edge("tool_exec", "reasoning")
+        graph.add_edge("summarize", END)
 
         return graph.compile()
 
-    def _build_messages(self, state: AgentState) -> List[Any]:
+    def _build_reasoning_messages(self, state: AgentState) -> List[Any]:
+        """Build messages for reasoning module."""
         context_text = "\n".join(state.get("context", []))
-        plan_guidance = ""
         plan = state.get("plan")
-        if plan and plan.get("status") == "active":
-            steps = plan.get("steps", [])
-            idx = state.get("current_step_index", 0)
-            if idx < len(steps):
-                plan_guidance = f"\n\nCURRENT PLAN GUIDANCE:\nObjective: {plan.get('objective')}\nCurrent Step ({idx + 1}/{len(steps)}): {steps[idx]}\n"
-            else:
-                plan_guidance = f"\n\nPLAN STATUS: All planned steps completed. Objective: {plan.get('objective')}\n"
-        messages: List[Any] = [
+        current_step_index = state.get("current_step_index", 0)
+        has_previous_action = len(state.get("actions", [])) > 0
+        
+        prompt = get_reasoning_prompt(
+            intent=state.get("intent", ""),
+            context=context_text,
+            plan=plan,
+            current_step_index=current_step_index,
+            has_previous_action=has_previous_action
+        )
+        
+        return [HumanMessage(content=prompt)]
+
+    def _build_controller_messages(self, state: AgentState) -> List[Any]:
+        """Build messages for controller module."""
+        context_text = "\n".join(state.get("context", []))
+        plan = state.get("plan")
+        current_step_index = state.get("current_step_index", 0)
+        
+        prompt = get_controller_prompt(
+            context=context_text,
+            plan=plan,
+            current_step_index=current_step_index
+        )
+        
+        return [
             SystemMessage(content=get_system_prompt()),
-            HumanMessage(content=f"Based on the following context, what should you do next?\n\n{context_text}{plan_guidance}"),
+            HumanMessage(content=prompt)
         ]
-        return messages
+
+    def _build_summarize_messages(self, state: AgentState) -> List[Any]:
+        """Build messages for summarize module."""
+        intent = state.get("intent", "")
+        plan = state.get("plan", {})
+        actions = state.get("actions", [])
+        context_text = "\n".join(state.get("context", []))
+        
+        prompt = get_summarize_prompt(
+            intent=intent,
+            plan=plan,
+            actions=actions,
+            context=context_text
+        )
+        
+        return [HumanMessage(content=prompt)]
 
     async def agent_loop(self, intent: str, snapshot: Optional[Dict[str, Any]] = None):
         if not self.is_initialized:
             await self.initialize()
+        
+        self.langfuse_handler = self.langfuse_handler or CallbackHandler()
+        
         initial_state: AgentState = {
             "intent": intent,
-            "snapshot": snapshot or {},
             "context": [f"Intent: {intent}", f"Snapshot: {json.dumps(snapshot or {}, indent=2)}"],
-            "actions_taken": [],
-            "plan_history": [],
-            "current_step_index": 0,
+            "actions": [],
             "round": 0,
-            "max_rounds": self.cfg.max_rounds,
         }
-        # async with trace("kube-mitigation-agent"):
-        final_state: AgentState = await self.graph.ainvoke(initial_state)
-        return final_state.get("actions_taken", []), final_state.get("final_summary")
+        
+        final_state: AgentState = await self.graph.ainvoke(
+            initial_state,
+            config={"callbacks": [self.langfuse_handler]},
+        )
+        
+        return final_state.get("actions", []), final_state.get("final_summary")

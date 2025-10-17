@@ -6,84 +6,86 @@ Defines all available operations that an AI agent can perform through MCP and ot
 
 from typing import List, Dict, Any
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
-# ----- Tool-call Pydantic models (for with_structured_output) -----
-class CreateActionPlanCall(BaseModel):
-    tool: Literal["create_action_plan"] = Field("create_action_plan", description="Exact tool to call")
-    objective: str = Field(..., description="Clear description of what to accomplish")
-    current_situation: str = Field(..., description="Current state/context for the plan")
-    steps: List[str] = Field(..., description="Ordered list of specific steps")
-    expected_outcome: Optional[str] = Field(None, description="Expected outcome after completing steps")
-    risks_considerations: Optional[List[str]] = Field(None, description="Potential risks or considerations")
+# ----- REASONING TOOLS (inform/analyze) -----
+class CreateReasoningPlan(BaseModel):
+    objective: str = Field(..., description="Clear goal to accomplish")
+    steps: List[str] = Field(..., description="Ordered list of specific steps to execute")
+    rationale: str = Field(..., description="Why this plan will resolve the issue")
 
 
-class GenerateOperationalSummaryCall(BaseModel):
-    tool: Literal["generate_operational_summary"] = Field("generate_operational_summary", description="Exact tool to call")
+class EvaluateStep(BaseModel):
+    step_completed: str = Field(..., description="Description of the step that was just executed")
+    observations: List[str] = Field(..., description="Key observations from the action result")
+    success: bool = Field(..., description="Did the step achieve its intended outcome?")
+    plan_action: Literal["proceed_to_next_step", "retry_current_step", "create_new_plan", "completed"] = Field(..., description="What to do next")
+    rationale: str = Field(..., description="Why this decision based on the evidence")
+
+
+class ProblemLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
+    name: str = Field(..., description="Name of the problem location (e.g., pod name, node name)")
+    type: str = Field(..., description="Type of the problem location (e.g., 'pod', 'node', 'deployment')")
+
+
+class GenerateOperationalSummary(BaseModel):
     objective: str = Field(..., description="Objective of the operation")
     actions_completed: List[str] = Field(..., description="List of actions completed")
     results_achieved: List[str] = Field(..., description="List of results achieved")
-    status: str = Field(..., description="Status of the operation")
-    problem_location: Optional[List[Dict[str, Any]]] = Field(None, description="List of problem locations with name and type")
+    status: str = Field(..., description="Final status of the operation")
+    problem_location: Optional[List[ProblemLocation]] = Field(None, description="List of problem locations with name and type")
     success: bool = Field(..., description="Whether the problem was resolved")
 
 
-class SleepSecondsCall(BaseModel):
-    tool: Literal["sleep_seconds"] = Field("sleep_seconds", description="Exact tool to call")
+class SleepSeconds(BaseModel):
     duration: float = Field(..., description="Number of seconds to sleep")
 
 
-class PrometheusGetTimeseriesCall(BaseModel):
-    tool: Literal["prometheus_get_timeseries"] = Field("prometheus_get_timeseries", description="Exact tool to call")
+class PrometheusGetTimeseries(BaseModel):
     metric_type: Literal["cpu", "memory", "latency"] = Field(..., description="Type of metric to retrieve")
     namespace: str = Field(..., description="Target namespace to filter metrics")
     duration: str = Field("2m", description="Time range backwards from now (<=2m)")
 
 
-class PrometheusGetNodeTimeseriesCall(BaseModel):
-    tool: Literal["prometheus_get_node_timeseries"] = Field("prometheus_get_node_timeseries", description="Exact tool to call")
+class PrometheusGetNodeTimeseries(BaseModel):
     metric_type: Literal["cpu", "memory"] = Field(..., description="Type of node metric to retrieve")
     duration: str = Field("2m", description="Time range backwards from now (<=2m)")
 
 
-class PrometheusGetServiceTopologyCall(BaseModel):
-    tool: Literal["prometheus_get_service_topology"] = Field("prometheus_get_service_topology", description="Exact tool to call")
+class PrometheusGetServiceTopology(BaseModel):
     namespace: Optional[str] = Field(None, description="Namespace to analyze topology for (optional)")
     time_window: str = Field("5m", description="Time window for analyzing request patterns")
 
 
-class KubectlApplyCall(BaseModel):
-    tool: Literal["kubectl_apply"] = Field("kubectl_apply", description="Exact tool to call")
+class KubectlApply(BaseModel):
     manifest: str = Field(..., description="The YAML manifest content to apply")
     namespace: Optional[str] = Field(None, description="Target namespace (optional)")
     dryRun: Optional[bool] = Field(None, description="If true, only validate without applying")
 
 
-class KubectlGetCall(BaseModel):
-    tool: Literal["kubectl_get"] = Field("kubectl_get", description="Exact tool to call")
+class KubectlGet(BaseModel):
     resourceType: str = Field(..., description="Resource type (e.g., 'pod', 'deployment')")
     name: Optional[str] = Field(None, description="Name of the resource (optional)")
     namespace: Optional[str] = Field(None, description="Namespace (optional)")
     output: Optional[Literal["json", "yaml", "wide", "name"]] = Field(None, description="Output format")
 
 
-class KubectlDeleteCall(BaseModel):
-    tool: Literal["kubectl_delete"] = Field("kubectl_delete", description="Exact tool to call")
+class KubectlDelete(BaseModel):
     resourceType: str = Field(..., description="Type of resource to delete")
     name: str = Field(..., description="Name of the resource")
     namespace: Optional[str] = Field(None, description="Namespace (optional for cluster-scoped)")
     force: Optional[bool] = Field(None, description="Force immediate deletion")
 
 
-class KubectlListCall(BaseModel):
-    tool: Literal["kubectl_list"] = Field("kubectl_list", description="Exact tool to call")
+class KubectlList(BaseModel):
     resourceType: str = Field(..., description="Type of resource to list")
     namespace: Optional[str] = Field(None, description="Specific namespace (optional)")
     allNamespaces: Optional[bool] = Field(None, description="List across all namespaces")
 
 
-class KubectlScaleCall(BaseModel):
-    tool: Literal["kubectl_scale"] = Field("kubectl_scale", description="Exact tool to call")
+class KubectlScale(BaseModel):
     name: str = Field(..., description="Name of the deployment to scale")
     namespace: Optional[str] = Field(None, description="Namespace of the deployment")
     replicas: int = Field(..., description="Number of replicas to scale to")
@@ -92,8 +94,7 @@ class KubectlScaleCall(BaseModel):
     )
 
 
-class KubectlPatchCall(BaseModel):
-    tool: Literal["kubectl_patch"] = Field("kubectl_patch", description="Exact tool to call")
+class KubectlPatch(BaseModel):
     resourceType: str = Field(..., description="Type of resource to patch")
     name: str = Field(..., description="Name of the resource to patch")
     namespace: Optional[str] = Field(None, description="Namespace of the resource")
@@ -102,16 +103,14 @@ class KubectlPatchCall(BaseModel):
     dryRun: Optional[bool] = Field(None, description="Validate only without applying")
 
 
-class KubectlDescribeCall(BaseModel):
-    tool: Literal["kubectl_describe"] = Field("kubectl_describe", description="Exact tool to call")
+class KubectlDescribe(BaseModel):
     resourceType: str = Field(..., description="Type of resource to describe")
     name: str = Field(..., description="Name of the resource")
     namespace: Optional[str] = Field(None, description="Namespace (optional)")
     allNamespaces: Optional[bool] = Field(None, description="Describe across all namespaces")
 
 
-class KubectlLogsCall(BaseModel):
-    tool: Literal["kubectl_logs"] = Field("kubectl_logs", description="Exact tool to call")
+class KubectlLogs(BaseModel):
     resourceType: Literal["pod", "deployment", "job", "cronjob"] = Field(..., description="Resource type")
     name: str = Field(..., description="Name of the resource")
     namespace: str = Field(..., description="Namespace of the resource")
@@ -125,8 +124,7 @@ class KubectlLogsCall(BaseModel):
     labelSelector: Optional[str] = Field(None, description="Filter by label selector")
 
 
-class KubectlRolloutCall(BaseModel):
-    tool: Literal["kubectl_rollout"] = Field("kubectl_rollout", description="Exact tool to call")
+class KubectlRollout(BaseModel):
     subCommand: Literal["history", "pause", "restart", "resume", "status", "undo"] = Field(..., description="Subcommand")
     resourceType: Literal["deployment", "daemonset", "statefulset"] = Field(..., description="Resource type")
     name: str = Field(..., description="Name of the resource")
@@ -137,8 +135,7 @@ class KubectlRolloutCall(BaseModel):
     watch: Optional[bool] = Field(None, description="Watch status until completion")
 
 
-class KubectlDrainCall(BaseModel):
-    tool: Literal["kubectl_drain"] = Field("kubectl_drain", description="Exact tool to call")
+class KubectlDrain(BaseModel):
     node_name: str = Field(..., description="Name of the node to drain")
     ignore_daemonsets: bool = Field(True, description="Ignore DaemonSet-managed pods")
     delete_emptydir_data: bool = Field(False, description="Continue if pods use emptyDir volumes")
@@ -148,65 +145,43 @@ class KubectlDrainCall(BaseModel):
     disable_eviction: bool = Field(False, description="Use delete instead of evict API")
 
 
-class KubectlCordonCall(BaseModel):
-    tool: Literal["kubectl_cordon"] = Field("kubectl_cordon", description="Exact tool to call")
+class KubectlCordon(BaseModel):
     node_name: str = Field(..., description="Name of the node to cordon")
 
 
-class KubectlUncordonCall(BaseModel):
-    tool: Literal["kubectl_uncordon"] = Field("kubectl_uncordon", description="Exact tool to call")
+class KubectlUncordon(BaseModel):
     node_name: str = Field(..., description="Name of the node to uncordon")
 
 
 # ---------- Aggregation helpers for tool registration ----------
-def get_all_tool_call_models() -> List[type[BaseModel]]:
-    """Return all Pydantic call models used for structured tool-calling across providers."""
+def get_reasoning_tool_models() -> List[type[BaseModel]]:
+    """Return tool models for reasoning/analysis (inform, don't execute)."""
     return [
-        # Planning / summaries / sleep
-        CreateActionPlanCall,
-        GenerateOperationalSummaryCall,
-        SleepSecondsCall,
-        # Prometheus
-        PrometheusGetTimeseriesCall,
-        PrometheusGetNodeTimeseriesCall,
-        PrometheusGetServiceTopologyCall,
-        # MCP kubectl
-        KubectlApplyCall,
-        KubectlGetCall,
-        KubectlDeleteCall,
-        KubectlListCall,
-        KubectlScaleCall,
-        KubectlPatchCall,
-        KubectlDescribeCall,
-        KubectlLogsCall,
-        KubectlRolloutCall,
-        KubectlDrainCall,
-        KubectlCordonCall,
-        KubectlUncordonCall,
+        CreateReasoningPlan,
+        EvaluateStep,
     ]
 
-def get_tool_name_to_model_map() -> Dict[str, type[BaseModel]]:
-    """Map tool name strings to their Pydantic call model class."""
-    return {
-        # Planning / summaries / sleep
-        "create_action_plan": CreateActionPlanCall,
-        "generate_operational_summary": GenerateOperationalSummaryCall,
-        "sleep_seconds": SleepSecondsCall,
+
+def get_execution_tool_models() -> List[type[BaseModel]]:
+    """Return tool models for execution (take action)."""
+    return [
+        # Utility
+        SleepSeconds,
         # Prometheus
-        "prometheus_get_timeseries": PrometheusGetTimeseriesCall,
-        "prometheus_get_node_timeseries": PrometheusGetNodeTimeseriesCall,
-        "prometheus_get_service_topology": PrometheusGetServiceTopologyCall,
+        PrometheusGetTimeseries,
+        PrometheusGetNodeTimeseries,
+        PrometheusGetServiceTopology,
         # MCP kubectl
-        "kubectl_apply": KubectlApplyCall,
-        "kubectl_get": KubectlGetCall,
-        "kubectl_delete": KubectlDeleteCall,
-        "kubectl_list": KubectlListCall,
-        "kubectl_scale": KubectlScaleCall,
-        "kubectl_patch": KubectlPatchCall,
-        "kubectl_describe": KubectlDescribeCall,
-        "kubectl_logs": KubectlLogsCall,
-        "kubectl_rollout": KubectlRolloutCall,
-        "kubectl_drain": KubectlDrainCall,
-        "kubectl_cordon": KubectlCordonCall,
-        "kubectl_uncordon": KubectlUncordonCall,
-    }
+        KubectlApply,
+        KubectlGet,
+        KubectlDelete,
+        KubectlList,
+        KubectlScale,
+        KubectlPatch,
+        KubectlDescribe,
+        KubectlLogs,
+        KubectlRollout,
+        KubectlDrain,
+        KubectlCordon,
+        KubectlUncordon,
+    ]

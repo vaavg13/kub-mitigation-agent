@@ -36,7 +36,7 @@ def _convert_problem_location_to_list(problem_location_param: Any) -> list[dict[
 
 def convert_node_function_to_generic(function_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Convert node management calls (Pydantic model names) to kubectl_generic arguments."""
-    if function_name == "KubectlDrainCall":
+    if function_name == "KubectlDrain":
         node_name = args["node_name"]
         flags: Dict[str, Any] = {}
         if args.get("ignore_daemonsets", True):
@@ -54,9 +54,9 @@ def convert_node_function_to_generic(function_name: str, args: Dict[str, Any]) -
         if timeout != "0s":
             flags["timeout"] = timeout
         return {"command": "drain", "name": node_name, "flags": flags}
-    if function_name == "KubectlCordonCall":
+    if function_name == "KubectlCordon":
         return {"command": "cordon", "name": args["node_name"]}
-    if function_name == "KubectlUncordonCall":
+    if function_name == "KubectlUncordon":
         return {"command": "uncordon", "name": args["node_name"]}
     raise ValueError(f"Unknown node function: {function_name}")
 
@@ -69,92 +69,50 @@ class ToolsRouter:
 
     async def execute(self, function_name: str, args: Dict[str, Any], state: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
-        Execute a tool call.
+        Execute a tool call (execution tools only - reasoning tools are handled in reasoning node).
 
         Returns: (result, state_delta, action_record)
         """
-        # Planning tools (update state) - expect model class names
-        if function_name == "CreateActionPlanCall":
-            plan = {
-                "objective": args.get("objective"),
-                "current_situation": args.get("current_situation"),
-                "steps": args.get("steps", []),
-                "expected_outcome": args.get("expected_outcome"),
-                "risks_considerations": args.get("risks_considerations", []),
-                "created_at": time.time(),
-                "status": "active",
-            }
-            state_delta = {"plan": plan, "current_step_index": 0}
-            result = {"status": "success", "message": "Action plan created successfully", "plan": plan}
-            action_record = {"type": "planning", "function": function_name, "parameters": args}
-            return result, state_delta, action_record
-
-        if function_name == "GenerateOperationalSummaryCall":
-            problem_location_param = args.get("problem_location", [])
-            problem_location_list = _convert_problem_location_to_list(problem_location_param)
-            summary = {
-                "objective": args.get("objective"),
-                "actions_completed": args.get("actions_completed", []),
-                "results_achieved": args.get("results_achieved", []),
-                "status": args.get("status"),
-                "problem_location": problem_location_list,
-                "success": args.get("success", False),
-                "timestamp": time.time(),
-                "plan_info": {
-                    "plans_created": len(state.get("plan_history", [])),
-                    "final_plan_status": (state.get("plan") or {}).get("status", "none"),
-                },
-            }
-            state_delta = {"final_summary": {"status": "success", "summary": summary, "operation_complete": True}}
-            # Mark plan status if present
-            if state.get("plan"):
-                updated_plan = dict(state["plan"])  # shallow copy
-                updated_plan["status"] = "completed_with_summary"
-                state_delta["plan"] = updated_plan
-            result = {"status": "success", "message": "Operational summary generated", "summary": summary, "operation_complete": True}
-            action_record = {"type": "planning", "function": function_name, "parameters": args}
-            return result, state_delta, action_record
-
         # MCP kubectl tools
         mcp_map = {
-            "KubectlApplyCall": "kubectl_apply",
-            "KubectlGetCall": "kubectl_get",
-            "KubectlDeleteCall": "kubectl_delete",
-            "KubectlListCall": "kubectl_list",
-            "KubectlScaleCall": "kubectl_scale",
-            "KubectlPatchCall": "kubectl_patch",
-            "KubectlDescribeCall": "kubectl_describe",
-            "KubectlLogsCall": "kubectl_logs",
-            "KubectlRolloutCall": "kubectl_rollout",
+            "KubectlApply": "kubectl_apply",
+            "KubectlGet": "kubectl_get",
+            "KubectlDelete": "kubectl_delete",
+            "KubectlList": "kubectl_list",
+            "KubectlScale": "kubectl_scale",
+            "KubectlPatch": "kubectl_patch",
+            "KubectlDescribe": "kubectl_describe",
+            "KubectlLogs": "kubectl_logs",
+            "KubectlRollout": "kubectl_rollout",
         }
         if function_name in mcp_map:
             result = await self.mcp_client.call_tool(mcp_map[function_name], args)
-            action_record = {"type": "mcp_call", "function": function_name, "parameters": args}
+            action_record = {"type": "kubectl_call", "function": function_name, "parameters": args}
             return result, {}, action_record
 
         # Node management via kubectl_generic
-        if function_name in ["KubectlDrainCall", "KubectlCordonCall", "KubectlUncordonCall"]:
+        if function_name in ["KubectlDrain", "KubectlCordon", "KubectlUncordon"]:
             generic_args = convert_node_function_to_generic(function_name, args)
             result = await self.mcp_client.call_tool("kubectl_generic", generic_args)
-            action_record = {"type": "mcp_call", "function": function_name, "parameters": args}
+            action_record = {"type": "kubectl_call", "function": function_name, "parameters": args}
             return result, {}, action_record
 
         # Prometheus tools
-        if function_name == "PrometheusGetTimeseriesCall":
+        if function_name == "PrometheusGetTimeseries":
             result = prometheus_get_timeseries(**args)
             action_record = {"type": "prometheus_call", "function": function_name, "parameters": args}
             return result, {}, action_record
-        if function_name == "PrometheusGetNodeTimeseriesCall":
+        if function_name == "PrometheusGetNodeTimeseries":
             result = prometheus_get_node_timeseries(**args)
             action_record = {"type": "prometheus_call", "function": function_name, "parameters": args}
             return result, {}, action_record
-        if function_name == "PrometheusGetServiceTopologyCall":
+        if function_name == "PrometheusGetServiceTopology":
             result = prometheus_get_service_topology(**args)
             action_record = {"type": "prometheus_call", "function": function_name, "parameters": args}
             return result, {}, action_record
 
         # Sleep
-        if function_name == "SleepSecondsCall":
+        if function_name == "SleepSeconds":
             duration = args.get("duration", 0)
             await asyncio.sleep(duration)
             result = {"duration": duration, "status": "completed"}
