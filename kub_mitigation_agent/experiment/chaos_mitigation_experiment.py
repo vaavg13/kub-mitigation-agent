@@ -19,7 +19,11 @@ from .traffic_generator import LocustTrafficGenerator
 from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
 from ..anomalies.chaos_mesh_handler import ChaosMeshHandler
 from kub_mitigation_agent.agent.agent import KubernetesAgent
-from kub_mitigation_agent.shared.prometheus_client import get_prometheus_tool
+from kub_mitigation_agent.shared.prometheus_client import (
+    get_prometheus_tool,
+    prometheus_get_timeseries,
+    prometheus_get_node_timeseries,
+)
 from .experiment_utils import extract_prometheus_latency
 from .experiment_utils import smart_warmup_with_monitoring
 from .simple_experiment_logger import SimpleExperimentLogger
@@ -185,6 +189,39 @@ class ChaosAndMitigationExperiment:
             "current_success_rate": str(self.current_metrics.get('success_rate_percent', 'unknown')) if self.current_metrics else 'unknown'
         }
         return context_map.get(field, "unknown")
+
+    def _collect_last_values_prometheus(self, namespace: str) -> Dict[str, Any]:
+        """Build a compact metrics snapshot from last sample of timeseries."""
+        # Enforce minimum duration of 1m for stable last sample
+        duration = "1m"
+        ns = namespace or ""
+
+        pod_cpu = prometheus_get_timeseries("cpu", ns, duration)
+        pod_mem = prometheus_get_timeseries("memory", ns, duration)
+        svc_lat = prometheus_get_timeseries("latency", ns, duration)
+        node_cpu = prometheus_get_node_timeseries("cpu", duration)
+        node_mem = prometheus_get_node_timeseries("memory", duration)
+
+        def last_values(ts_result: Dict[str, Any]) -> Dict[str, float]:
+            if not ts_result or ts_result.get("error"):
+                return {}
+            entities = {}
+            series_map = ts_result.get("values", {})
+            for key, series in series_map.items():
+                if isinstance(series, list) and series:
+                    entities[key] = series[-1]
+            return entities
+
+        summary = {
+            "metrics": {
+                "pod_cpu": {"unit": pod_cpu.get("unit"), "values": last_values(pod_cpu)},
+                "pod_memory": {"unit": pod_mem.get("unit"), "values": last_values(pod_mem)},
+                "istio_latency": {"unit": svc_lat.get("unit"), "values": last_values(svc_lat)},
+                "node_cpu": {"unit": node_cpu.get("unit"), "values": last_values(node_cpu)},
+                "node_memory": {"unit": node_mem.get("unit"), "values": last_values(node_mem)},
+            }
+        }
+        return summary
 
     def _cleanup_chaos_sync(self) -> bool:
         """Synchronous chaos cleanup function to run in thread executor."""
@@ -443,8 +480,8 @@ class ChaosAndMitigationExperiment:
                 baseline_metrics = self.traffic_generator.get_phase_metrics(self.config["baseline_duration"])
                 self.baseline_metrics = baseline_metrics
                 
-                # Collect Prometheus baseline metrics for agent context
-                self.baseline_prometheus_metrics = self.prometheus_tool.get_metrics_summary(self.config["namespace"])
+                # Collect Prometheus baseline metrics for agent context (last-of-timeseries)
+                self.baseline_prometheus_metrics = self._collect_last_values_prometheus(self.config["namespace"]) 
                 
                 results["phase_metrics"]["baseline"] = baseline_metrics
                 print(f"  ✅ Baseline: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
@@ -474,8 +511,8 @@ class ChaosAndMitigationExperiment:
             results["phase_metrics"]["chaos"] = chaos_metrics
             print(f"  ⚠️  Chaos: {chaos_metrics['success_rate_percent']:.1f}% success, P95: {chaos_metrics['p95_latency_seconds']:.3f}s")
             
-            # Collect Prometheus chaos metrics for agent context
-            chaos_prometheus_metrics = self.prometheus_tool.get_metrics_summary(self.config["namespace"])
+            # Collect Prometheus chaos metrics for agent context (last-of-timeseries)
+            chaos_prometheus_metrics = self._collect_last_values_prometheus(self.config["namespace"]) 
             
             # Log chaos metrics if logging enabled
             if self.simple_logger:

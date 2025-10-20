@@ -37,8 +37,7 @@ if __name__ == "__main__":
     # Minimal, read-only intent
     NAMESPACE = "app-iot-gateway"
     intent = (
-        f"Retrieve CPU metrics for namespace '{NAMESPACE}', "
-        "then list pods with -o wide to verify Kubernetes access. Read-only."
+        f"Retrieve CPU and RAM metrics for namespace '{NAMESPACE}' across 10m and 2m horizons. Report on the behaviour of the application in the last 2m vs the last 10m. "
     )
 
     async def _run():

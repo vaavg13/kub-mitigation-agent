@@ -46,12 +46,12 @@ class SleepSeconds(BaseModel):
 class PrometheusGetTimeseries(BaseModel):
     metric_type: Literal["cpu", "memory", "latency"] = Field(..., description="Type of metric to retrieve")
     namespace: str = Field(..., description="Target namespace to filter metrics")
-    duration: str = Field("2m", description="Time range backwards from now (<=2m)")
+    duration: str = Field("5m", description="Time range backwards from now (<=2m)")
 
 
 class PrometheusGetNodeTimeseries(BaseModel):
     metric_type: Literal["cpu", "memory"] = Field(..., description="Type of node metric to retrieve")
-    duration: str = Field("2m", description="Time range backwards from now (<=2m)")
+    duration: str = Field("5m", description="Time range backwards from now (<=2m)")
 
 
 class PrometheusGetServiceTopology(BaseModel):
@@ -165,6 +165,33 @@ def get_reasoning_tool_models() -> List[type[BaseModel]]:
 def get_execution_tool_models() -> List[type[BaseModel]]:
     """Return tool models for execution (take action)."""
     return [
+        # Utility
+        SleepSeconds,
+        # Prometheus
+        PrometheusGetTimeseries,
+        PrometheusGetNodeTimeseries,
+        PrometheusGetServiceTopology,
+        # MCP kubectl
+        KubectlApply,
+        KubectlGet,
+        KubectlDelete,
+        KubectlList,
+        KubectlScale,
+        KubectlPatch,
+        KubectlDescribe,
+        KubectlLogs,
+        KubectlRollout,
+        KubectlDrain,
+        KubectlCordon,
+        KubectlUncordon,
+    ]
+
+
+def get_all_tool_models() -> List[type[BaseModel]]:
+    """Return all tool models for ReAct agent (no separation between reasoning/execution)."""
+    return [
+        # Summary tool (signals completion)
+        GenerateOperationalSummary,
         # Utility
         SleepSeconds,
         # Prometheus
