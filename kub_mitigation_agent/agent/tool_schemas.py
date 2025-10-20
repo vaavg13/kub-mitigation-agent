@@ -11,13 +11,17 @@ from pydantic import BaseModel, Field, ConfigDict
 # ----- REASONING TOOLS (inform/analyze) -----
 class CreateReasoningPlan(BaseModel):
     objective: str = Field(..., description="Clear goal to accomplish")
-    steps: List[str] = Field(..., description="Ordered list of specific steps to execute")
-    rationale: str = Field(..., description="Why this plan will resolve the issue")
+    steps: List[str] = Field(
+        ..., 
+        description="Ordered list of CONCRETE ACTION STEPS (specific tool calls). NOT analytical tasks like 'compare X and Y' - you do that in EvaluateStep. Example: 'Get CPU metrics for namespace X (10m)', 'Scale deployment Y to 3 replicas'"
+    )
+    rationale: str = Field(..., description="Why this plan will resolve the issue based on your analysis")
 
 
 class EvaluateStep(BaseModel):
     step_completed: str = Field(..., description="Description of the step that was just executed")
     observations: List[str] = Field(..., description="Key observations from the action result")
+    analysis: str = Field(..., description="Your analysis of the data: comparisons, patterns, calculations, and conclusions drawn from the observations")
     success: bool = Field(..., description="Did the step achieve its intended outcome?")
     plan_action: Literal["proceed_to_next_step", "retry_current_step", "create_new_plan", "completed"] = Field(..., description="What to do next")
     rationale: str = Field(..., description="Why this decision based on the evidence")

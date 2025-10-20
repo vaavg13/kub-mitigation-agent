@@ -56,8 +56,8 @@ if __name__ == "__main__":
         finally:
             await agent.cleanup()
         
-        logger.info(f"Actions taken: {len(actions_taken)}")
-        logger.info(f"Operational summary:\n{json.dumps(operational_summary, indent=2)}")
+        print(f"Actions taken: {len(actions_taken)}")
+        print(f"Operational summary:\n{json.dumps(operational_summary, indent=2)}")
         
         return actions_taken, operational_summary
 

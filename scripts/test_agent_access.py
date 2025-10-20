@@ -45,13 +45,24 @@ if __name__ == "__main__":
         print("Initializing agent...")
         await asyncio.wait_for(agent.initialize(), timeout=30)
         print("Agent initialized. Running intent...")
+        print(f"Timeout: {cfg.agent_timeout}s")
+        
         try:
-            actions_taken, operational_summary = await asyncio.wait_for(agent.agent_loop(intent), timeout=cfg.agent_timeout or 120)
+            actions_taken, operational_summary = await asyncio.wait_for(
+                agent.agent_loop(intent), 
+                timeout=cfg.agent_timeout
+            )
+        except asyncio.TimeoutError:
+            print(f"\n❌ TIMEOUT: Agent exceeded {cfg.agent_timeout}s. Increase timeout in config or use faster model.")
+            return
         finally:
             await agent.cleanup()
-        print("actions:", len(actions_taken))
+            
+        print(f"\n✓ Completed: {len(actions_taken)} actions")
         if isinstance(operational_summary, dict):
-            print("summary:", operational_summary.get("summary") or operational_summary)
+            status = operational_summary.get("status", "N/A")
+            success = "✓" if operational_summary.get("success") else "✗"
+            print(f"{success} Status: {status}")
         else:
             print("summary:", operational_summary)
 

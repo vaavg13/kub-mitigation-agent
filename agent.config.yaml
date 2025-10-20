@@ -1,13 +1,13 @@
 llm:
-  provider: openai           # openai | anthropic | google | xai
-  model: gpt-5 # gpt-4.1 | gpt-5 | claude-sonnet-4-5-20250929
+  provider: xai           # openai | anthropic | google | xai
+  model: grok-4-fast-reasoning # gpt-4.1 | gpt-5 | claude-sonnet-4-5-20250929
   temperature: 0.2
   max_tokens: 4096
   request_timeout: 120
 
 agent:
   max_rounds: 30
-  timeout: 180
+  timeout: 600               # 10 minutes total for agent execution (GPT-5 is slow)
   show_reasoning: true
   reasoning_in_context: true
   verbose: false

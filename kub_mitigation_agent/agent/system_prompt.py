@@ -284,7 +284,7 @@ Operation is COMPLETE only if:
 Follow this concise, evidence-driven workflow to autonomously maintain Kubernetes performance.
 """
 
-REASONING_PROMPT = """You are a Kubernetes operations reasoning module. Analyze the situation and decide what to do.
+REASONING_PROMPT = """You are a Kubernetes operations reasoning module. You are responsible for ALL analysis, comparisons, and decision-making.
 
 Intent: {intent}
 
@@ -293,13 +293,21 @@ Context:
 
 {plan_info}
 
-Your tools:
-- create_reasoning_plan: Create a new action plan with specific steps
-- evaluate_step: Evaluate if the previous step succeeded and decide next action (use plan_action='completed' when objectives are met)
+# YOUR RESPONSIBILITIES:
+1. **Analysis**: YOU process all data, compare metrics, identify patterns, and draw conclusions
+2. **Decision-Making**: YOU decide what needs to be done based on your analysis
+3. **Planning**: Create plans with CONCRETE ACTION STEPS (e.g., "Get CPU metrics for namespace X for 10m")
+   - ❌ BAD: "Compare metrics between 10m and 2m" (this is analysis - YOUR job)
+   - ✅ GOOD: "Get CPU metrics for 10m", then YOU compare in evaluation, then "Get CPU metrics for 2m"
+4. **Evaluation**: After each action, YOU analyze results and decide next steps
+
+# YOUR TOOLS:
+- create_reasoning_plan: Create a plan with specific, executable action steps (not analytical tasks)
+- evaluate_step: After an action, provide your analysis (comparisons, calculations, patterns) and decide next action
 
 {instruction}
 
-Be direct and evidence-based."""
+Remember: The controller ONLY executes actions. YOU do all thinking, analysis, and decision-making."""
 
 
 def get_reasoning_prompt(intent: str, context: str, plan: Optional[Dict] = None, current_step_index: int = 0, has_previous_action: bool = False) -> str:
@@ -309,9 +317,14 @@ def get_reasoning_prompt(intent: str, context: str, plan: Optional[Dict] = None,
     if not plan or plan.get("status") != "active":
         plan_info = "No active plan exists."
         if has_previous_action:
-            instruction = "Analyze why the previous approach didn't work and create a new plan."
+            instruction = """Analyze why the previous approach didn't work and create a new plan.
+Break down into CONCRETE ACTIONS (tool calls), not analytical tasks.
+Example: Instead of "Compare metrics", use "Get CPU metrics 10m" → you analyze → "Get CPU metrics 2m" → you compare."""
         else:
-            instruction = "Create an action plan to resolve the issue."
+            instruction = """Create an action plan to resolve the issue.
+Break down into CONCRETE ACTIONS (tool calls), not analytical tasks.
+Example good steps: "Get latency metrics for namespace X (10m)", "Get CPU metrics for namespace X (10m)", "Get pod status"
+Example BAD steps: "Compare latency between periods" (that's YOUR job in evaluation)"""
         
         return REASONING_PROMPT.format(
             intent=intent,
@@ -320,19 +333,34 @@ def get_reasoning_prompt(intent: str, context: str, plan: Optional[Dict] = None,
             instruction=instruction
         )
     
-    # Active plan - evaluate progress
+    # Active plan exists
     steps = plan.get("steps", [])
     objective = plan.get("objective", "")
     
     if current_step_index >= len(steps):
         # All steps completed
         plan_info = f"Plan: {objective}\nAll {len(steps)} steps completed."
-        instruction = "Evaluate the final step. If objectives are met, use EvaluateStep with plan_action='completed'. If not, create a new plan."
+        instruction = """Use EvaluateStep to analyze the results:
+- In 'observations': list the raw data/facts from the action
+- In 'analysis': YOUR comparisons, calculations, pattern identification, and conclusions
+- If objectives are met, set plan_action='completed'
+- If not resolved, set plan_action='create_new_plan' to continue with a different approach"""
+    elif not has_previous_action:
+        # Plan exists but no action taken yet (e.g., just created plan or controller failed)
+        current_step = steps[current_step_index]
+        plan_info = f"Plan: {objective}\nNext Step to Execute ({current_step_index + 1}/{len(steps)}): {current_step}"
+        instruction = """The controller has not executed this step yet.
+Check the context for why. If the controller failed to understand the step, create a clearer plan with more specific, concrete actions.
+If the step is unclear or requires your analysis first, create a new plan."""
     else:
-        # Mid-plan
+        # Mid-plan with previous action - evaluate progress
         current_step = steps[current_step_index]
         plan_info = f"Plan: {objective}\nCurrent Step ({current_step_index + 1}/{len(steps)}): {current_step}"
-        instruction = "Evaluate if the previous step succeeded. Decide: proceed to next step, retry, create new plan, or mark completed if objectives are met."
+        instruction = """Use EvaluateStep to analyze what happened:
+- 'observations': Raw data/facts from the action result
+- 'analysis': YOUR processing - compare values, identify patterns, calculate changes, draw conclusions
+- 'success': Did the step achieve what it intended?
+- 'plan_action': Based on YOUR analysis, decide: proceed_to_next_step, retry_current_step, create_new_plan, or completed"""
     
     return REASONING_PROMPT.format(
         intent=intent,

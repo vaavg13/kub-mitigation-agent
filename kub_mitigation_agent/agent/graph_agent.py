@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, TypedDict
@@ -109,6 +110,7 @@ class GraphKubernetesAgent:
                 
                 eval_msg = f"EVALUATION: Step '{tool_args.get('step_completed')}' - Success: {tool_args.get('success')}"
                 eval_msg += f"\nObservations: {'; '.join(tool_args.get('observations', []))}"
+                eval_msg += f"\nAnalysis: {tool_args.get('analysis', 'N/A')}"
                 eval_msg += f"\nDecision: {plan_action}"
                 state_delta["context"] = state_delta["context"] + [eval_msg]
                 
@@ -137,8 +139,11 @@ class GraphKubernetesAgent:
             )
             
             if not ai.tool_calls:
+                # No tool call - add context message to help reasoning understand what happened
                 logger.warning("Controller did not call a tool")
-                return {}
+                return {
+                    "context": state.get("context", []) + ["SYSTEM: Controller failed to produce a tool call. Reasoning should analyze why and decide next steps."]
+                }
             
             tc = ai.tool_calls[0]
             tool_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
@@ -214,7 +219,7 @@ class GraphKubernetesAgent:
                 return "tool_exec"
             else:
                 # Controller failed to produce a tool call - go back to reasoning
-                logger.warning("Controller did not produce a tool call, routing back to reasoning")
+                # (warning already logged in controller node)
                 return "reasoning"
 
         def route_after_tool(state: AgentState):
@@ -297,9 +302,26 @@ class GraphKubernetesAgent:
             "round": 0,
         }
         
-        final_state: AgentState = await self.graph.ainvoke(
-            initial_state,
-            config={"callbacks": [self.langfuse_handler]},
-        )
-        
-        return final_state.get("actions", []), final_state.get("final_summary")
+        try:
+            final_state: AgentState = await self.graph.ainvoke(
+                initial_state,
+                config={"callbacks": [self.langfuse_handler], "recursion_limit": 100},
+            )
+            
+            return final_state.get("actions", []), final_state.get("final_summary")
+            
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            error_type = "timeout" if isinstance(e, asyncio.TimeoutError) else "cancelled"
+            logger.error(f"Agent execution {error_type} - generating emergency summary")
+            
+            # Generate minimal emergency summary
+            emergency_summary = {
+                "objective": "Agent execution incomplete",
+                "actions_completed": [a.get("tool", "unknown") for a in initial_state.get("actions", [])],
+                "results_achieved": ["Partial execution - agent terminated early"],
+                "status": f"FAILED - Agent execution {error_type}",
+                "problem_location": [],
+                "success": False
+            }
+            
+            return initial_state.get("actions", []), emergency_summary
