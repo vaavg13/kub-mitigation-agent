@@ -36,11 +36,10 @@ def get_llm(cfg: KubernetesAgentConfig) -> Any:
             timeout=cfg.request_timeout
         )
     if cfg.provider == "xai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
+        from langchain_xai import ChatXAI
+        return ChatXAI(
             model=cfg.model,
             api_key=cfg.xai_api_key,
-            base_url=cfg.xai_base_url,
             temperature=cfg.temperature,
             max_tokens=cfg.max_tokens,
             timeout=cfg.request_timeout
