@@ -30,7 +30,31 @@ class MCPClient:
         self.process.stdin.write(request_json.encode())
         await self.process.stdin.drain()
         
-        response_line = await self.process.stdout.readline()
+        # Read response handling large kubectl outputs
+        # The default asyncio StreamReader limit (~64KB) is too small for large cluster outputs
+        chunks = []
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        self.process.stdout.readuntil(b'\n'),
+                        timeout=30
+                    )
+                    chunks.append(chunk)
+                    break
+                except asyncio.LimitOverrunError as e:
+                    # Response exceeded buffer limit - read consumed bytes and continue
+                    # This happens when kubectl returns many resources (pods, events, etc.)
+                    chunk = await self.process.stdout.read(e.consumed)
+                    chunks.append(chunk)
+                    # Continue reading until we find the newline
+        except asyncio.TimeoutError:
+            raise RuntimeError("MCP server did not respond within 30 seconds")
+        
+        response_line = b''.join(chunks)
+        if not response_line:
+            raise RuntimeError("MCP server closed connection")
+        
         return json.loads(response_line.decode().strip())
 
     async def initialize(self):

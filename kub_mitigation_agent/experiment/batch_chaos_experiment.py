@@ -14,6 +14,8 @@ from .experiment_utils import deploy_fresh_app_sync, undeploy_app_sync
 from .simple_experiment_logger import SimpleExperimentLogger
 from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
 from ..anomalies.chaos_mesh_handler import ChaosMeshHandler
+import os
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ class BatchChaosExperiment:
         experiment_config = self.batch_config.copy()
         experiment_config["chaos_config"] = chaos_config
         return experiment_config
+
     
     def _create_experiment_id(self, index: int, chaos_config: Dict[str, Any]) -> str:
         """Create unique experiment ID."""

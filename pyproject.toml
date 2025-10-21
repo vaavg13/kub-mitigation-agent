@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kub-mitigation-agent"
+version = "0.1.0"
+description = "Kubernetes mitigation agent for chaos engineering and automated remediation"
+requires-python = ">=3.8"
+dependencies = [
+    "langfuse",
+    "langchain-anthropic",
+    "langchain-google-genai",
+    "langchain-xai",
+    "langchain==0.3.27",
+    "langchain-community==0.3.31",
+    "langchain-core==0.3.79",
+    "langchain-openai==0.3.35",
+    "langgraph",
+    "langgraph-checkpoint",
+    "langgraph-prebuilt",
+    "langgraph-sdk",
+    "locust",
+    "gevent",
+    "kubernetes",
+    "python-dotenv",
+    "mu-bench",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kub_mitigation_agent*"]
+exclude = ["tests*", "scripts*", "mcp*", "DATASET_LOGS*"]
+

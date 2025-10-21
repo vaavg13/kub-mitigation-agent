@@ -1,24 +1,10 @@
-#!/usr/bin/env python3
-"""
-Batch Chaos Experiment Runner
-Sample script to run multiple chaos experiments with different configurations.
-"""
-
 import asyncio
 import logging
+import argparse
 import sys
 import os
 from pathlib import Path
-
-# --- Configuration ---
-# Set the starting experiment number (1-indexed). 
-# To run all experiments, set this to 1.
-# To resume from a specific experiment, set it to that number (e.g., 15).
-START_AT_EXPERIMENT = 5
-
-# Add project root to path for imports
-project_root = Path(__file__).parent
-sys.path.append(str(project_root))
+from dotenv import load_dotenv
 
 # CRITICAL: Import Locust FIRST to do SSL monkey-patching before Kubernetes client
 try:
@@ -27,52 +13,63 @@ except ImportError:
     pass  # If Locust not available, continue without it
 
 # Import modules
-from nl_interface.experiment.batch_chaos_experiment import BatchChaosExperiment
-from nl_interface.experiment.batch_config import BATCH_CONFIG, BATCH_ALERT_CONFIG
-from nl_interface.experiment.chaos_batch_generator import ChaosBatchGenerator, DEFAULT_CHAOS_COUNT_PER_TYPE
-from nl_interface.experiment.batch_config import LOGGING_CONFIG
+from kub_mitigation_agent.experiment.batch_chaos_experiment import BatchChaosExperiment
+from kub_mitigation_agent.experiment.chaos_batch_generator import ChaosBatchGenerator, DEFAULT_CHAOS_COUNT_PER_TYPE
+import yaml
 
-def setup_logging():
+REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=REPO_ROOT / ".env")
+
+START_AT_EXPERIMENT = 5
+
+def setup_logging(log_config):
     """Setup logging configuration."""
-    log_config = LOGGING_CONFIG.copy()
-    
-    # Configure basic logging
     logging.basicConfig(
-        level=getattr(logging, log_config["level"]),
-        format=log_config["format"]
+        level=getattr(logging, log_config.get("level", "INFO")),
+        format=log_config.get("format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )
-
-    # Suppress verbose logs from specified libraries
-    for lib in log_config["suppress_libs"]:
+    for lib in log_config.get("suppress_libs", []):
         logging.getLogger(lib).setLevel(logging.WARNING)
 
-def create_batch_config(experiment_count_per_type: int = DEFAULT_CHAOS_COUNT_PER_TYPE, 
+def create_batch_config(base_config, experiment_count_per_type: int = DEFAULT_CHAOS_COUNT_PER_TYPE, 
                        random_seed: int = 42):
     """Create batch configuration with generated chaos experiments."""
-    # Start with the complete configuration from batch_config.py
-    batch_config = BATCH_CONFIG.copy()
-    
-    # Generate chaos configurations using the generator
-    generator = ChaosBatchGenerator(BATCH_CONFIG, seed=random_seed)
+    batch_config = base_config.copy()
+    generator = ChaosBatchGenerator(base_config, seed=random_seed)
     chaos_configs = generator.generate_comprehensive_batch(experiment_count_per_type)
-    
-    # Add the generated chaos configurations
     batch_config["chaos_configurations"] = chaos_configs
-    
     return batch_config
+
+def load_yaml_config(config_path: Path):
+    """Load YAML file and return (BATCH_CONFIG, BATCH_ALERT_CONFIG, LOGGING_CONFIG)."""
+    cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    batch_cfg = cfg.get("BATCH_CONFIG") or cfg.get("batch_config") or {}
+    alert_cfg = cfg.get("BATCH_ALERT_CONFIG") or cfg.get("batch_alert_config") or {}
+    logging_cfg = cfg.get("LOGGING_CONFIG") or cfg.get("logging_config") or {}
+    return batch_cfg, alert_cfg, logging_cfg
 
 async def main():
     """Main async function to run batch chaos experiments."""
     print("🎯 Batch Chaos Experiment Runner")
     print("=" * 50)
     
+    # Parse args
+    parser = argparse.ArgumentParser(description="Batch Chaos Experiment Runner")
+    repo_root = Path(__file__).resolve().parent.parent
+    default_cfg = repo_root / "experiment_configs" / "batch_config_iot_gateway_app.yaml"
+    parser.add_argument("--config", "-c", type=str, default=str(default_cfg), help="Path to YAML batch config")
+    args = parser.parse_args()
+
+    # Load YAML config
+    batch_cfg_loaded, alert_cfg_loaded, logging_cfg_loaded = load_yaml_config(Path(args.config))
+
     # Setup logging
-    setup_logging()
+    setup_logging(logging_cfg_loaded)
 
     start_at_experiment = START_AT_EXPERIMENT
     
     # Configuration from BATCH_CONFIG
-    batch_settings = BATCH_CONFIG.get("batch_settings", {})
+    batch_settings = batch_cfg_loaded.get("batch_settings", {})
     experiment_count_per_type = batch_settings.get("experiments_count_per_type", 2)
     random_seed = batch_settings.get("random_seed", 42)
     dataset_output_dir = "DATASET_LOGS"  # Directory for comprehensive dataset logs
@@ -80,7 +77,7 @@ async def main():
     print(f"Configuration: {experiment_count_per_type} experiments per type, seed={random_seed}")
     
     # Create batch configuration
-    batch_config = create_batch_config(experiment_count_per_type, random_seed)
+    batch_config = create_batch_config(batch_cfg_loaded, experiment_count_per_type, random_seed)
     
     # --- Slicing for Resuming ---
     all_chaos_configs = batch_config.get("chaos_configurations", [])
@@ -111,7 +108,7 @@ async def main():
     batch_experiment = BatchChaosExperiment(batch_config, output_base_dir=dataset_output_dir)
     
     # Use the batch-specific alert configuration
-    alert_config = BATCH_ALERT_CONFIG
+    alert_config = alert_cfg_loaded
     
     # Run the batch experiment
     print(f"Starting batch execution...")
@@ -138,7 +135,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        setup_logging()
         exit_code = asyncio.run(main())
         sys.exit(exit_code)
     except KeyboardInterrupt:

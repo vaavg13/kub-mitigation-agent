@@ -20,3 +20,5 @@ locust
 gevent
 kubernetes
 dotenv
+fastapi
+uvicorn

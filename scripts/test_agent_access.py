@@ -27,7 +27,7 @@ from kub_mitigation_agent.agent.agent import KubernetesAgent
 
 if __name__ == "__main__":
     # Load config (assumes file exists)
-    cfg_dict = yaml.safe_load((PROJECT_ROOT / "agent.config.yaml").read_text(encoding="utf-8"))
+    cfg_dict = yaml.safe_load((PROJECT_ROOT / "experiment_configs" / "agent.config.yaml").read_text(encoding="utf-8"))
     cfg = KubernetesAgentConfig.from_yaml_dict(cfg_dict)
 
     # Minimal logging to surface progress

@@ -11,114 +11,13 @@ from typing import Dict, Any
 from kubernetes import client, config
 from mu_bench.deployers.manager import K8sDeploymentManager
 
-async def smart_warmup_with_monitoring(config, traffic_generator):
-    """Smart warmup that monitors latency until it stabilizes.
-    
-    Args:
-        config: Experiment configuration containing pod_warmup_duration
-        traffic_generator: Traffic generator instance with reset_phase_metrics() and get_phase_metrics() methods
-    """
-    max_warmup_time = config["pod_warmup_duration"]  # Safety limit
-    check_interval = 30  # Check every 30 seconds
-    stability_window = 3  # Need 3 stable measurements
-    stability_threshold = 0.3  # Latency variation < 30% to consider stable
-    min_success_rate = 70  # Minimum success rate to consider healthy
-    
-    latency_history = []
-    elapsed_time = 0
-    stable_count = 0
-    
-    print(
-        f"🔄 Monitoring warmup (max {max_warmup_time}s, "
-        f"checking every {check_interval}s)"
-    )
-    print(
-        f"📊 Looking for latency stabilization: <{stability_threshold * 100}% "
-        f"variation for {stability_window} measurements"
-    )
-    
-    # Reset metrics at start of warmup
-    traffic_generator.reset_phase_metrics()
-    
-    while elapsed_time < max_warmup_time:
-        await asyncio.sleep(check_interval)
-        elapsed_time += check_interval
-        
-        # Get current metrics for this check interval
-        metrics = traffic_generator.get_phase_metrics(check_interval)
-        
-        # Reset metrics after reading (so next measurement is clean)
-        traffic_generator.reset_phase_metrics()
-        
-        if not metrics or metrics.get('total_requests', 0) == 0:
-            print(f"⏳ {elapsed_time}s: No requests yet, continuing warmup...")
-            continue
-            
-        current_latency = metrics.get('p95_latency_seconds', 0)
-        success_rate = metrics.get('success_rate_percent', 0)
-        
-        print(
-            f"📈 {elapsed_time}s: P95={current_latency:.3f}s, "
-            f"Success={success_rate:.1f}%, Req={metrics.get('total_requests', 0)}"
-        )
-        
-        # Check if service is healthy enough to measure
-        if success_rate < min_success_rate:
-            print(
-                f"⚠️  Success rate too low ({success_rate:.1f}% < {min_success_rate}%), "
-                f"continuing warmup..."
-            )
-            latency_history.clear()  # Reset history due to unhealthy state
-            stable_count = 0
-            continue
-        
-        # Add to latency history
-        latency_history.append(current_latency)
-        
-        # Only start checking stability after we have enough history
-        if len(latency_history) < stability_window:
-            continue
-            
-        # Keep only recent history
-        if len(latency_history) > stability_window:
-            latency_history.pop(0)
-        
-        # Check if latency is stable (low variation)
-        if len(latency_history) == stability_window:
-            min_latency = min(latency_history)
-            max_latency = max(latency_history)
-            
-            # Avoid division by zero
-            if min_latency > 0:
-                variation = (max_latency - min_latency) / min_latency
-                
-                if variation <= stability_threshold:
-                    stable_count += 1
-                    print(f"✅ Stable measurement {stable_count}: variation {variation:.2%} (threshold: {stability_threshold:.0%})")
-                    
-                    # Consider stable if we have enough consecutive stable measurements
-                    if stable_count >= 2:  # At least 2 consecutive stable intervals
-                        print(f"🎯 Latency stabilized at ~{current_latency:.3f}s after {elapsed_time}s")
-                        print(f"✅ Warmup complete - services ready for baseline measurement")
-                        return
-                else:
-                    stable_count = 0
-                    print(f"📊 Variation {variation:.2%} > {stability_threshold:.0%}, waiting for stability...")
-    
-    # If we exit the loop, we hit max time
-    if latency_history:
-        avg_latency = sum(latency_history) / len(latency_history)
-        print(f"⏰ Max warmup time reached ({max_warmup_time}s)")
-        print(f"📊 Final average latency: {avg_latency:.3f}s")
-    else:
-        print(f"⚠️  Warmup completed without stable measurements")
-    
-    print(f"✅ Proceeding to baseline measurement")
-
 def validate_config(config):
-    """Validate that all required configuration is present."""
+    """Validate that all required configuration is present.
+
+    Agent config is now loaded from YAML separately; do not require it here.
+    """
     required_fields = [
-        "namespace", "agent_config", "traffic_config"
+        "namespace", "traffic_config"
     ]
     
     missing_fields = []
@@ -138,12 +37,6 @@ def validate_config(config):
     
     if missing_fields:
         raise ValueError(f"Missing required configuration fields: {missing_fields}")
-    
-    # Validate agent config
-    agent_required = ["max_rounds", "agent_timeout", "openai_model"]
-    for field in agent_required:
-        if field not in config["agent_config"]:
-            missing_fields.append(f"agent_config.{field}")
     
     # Validate traffic config
     traffic_required = ["endpoints", "requests_per_second", "request_timeout"]

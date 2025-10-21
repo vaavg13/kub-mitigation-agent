@@ -12,3 +12,6 @@ __pycache__/
 *.pywzzz
 DATASET_LOGS/
 .env
+*.egg-info
+
+APPS/

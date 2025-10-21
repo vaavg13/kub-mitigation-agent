@@ -3,6 +3,7 @@
 ReAct Agent - Reason + Act Approach
 Simplified agent that uses ReAct loop without complex planning logic.
 """
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, TypedDict
@@ -235,7 +236,13 @@ Remember: Always act based on evidence. Use clear operational language."""
         if not self.is_initialized:
             await self.initialize()
         
-        self.langfuse_handler = self.langfuse_handler or CallbackHandler()
+        # Initialize Langfuse handler with error handling for connection issues
+        if not self.langfuse_handler:
+            try:
+                self.langfuse_handler = CallbackHandler()
+            except Exception as e:
+                logger.warning(f"Failed to initialize Langfuse handler (tracing disabled): {e}")
+                self.langfuse_handler = None
         
         # Initial state
         initial_state: ReactAgentState = {
@@ -248,11 +255,47 @@ Remember: Always act based on evidence. Use clear operational language."""
             "round": 0,
         }
         
-        # Run the graph
-        final_state: ReactAgentState = await self.graph.ainvoke(
-            initial_state,
-            config={"callbacks": [self.langfuse_handler]},
-        )
-        
-        return final_state.get("actions", []), final_state.get("final_summary")
+        try:
+            # Build config with callbacks only if Langfuse is available
+            config = {}
+            if self.langfuse_handler:
+                config["callbacks"] = [self.langfuse_handler]
+            
+            # Run the graph
+            final_state: ReactAgentState = await self.graph.ainvoke(initial_state, config=config)
+            
+            return final_state.get("actions", []), final_state.get("final_summary")
+            
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            error_type = "timeout" if isinstance(e, asyncio.TimeoutError) else "cancelled"
+            logger.error(f"Agent execution {error_type} - generating emergency summary")
+            
+            # Generate minimal emergency summary
+            emergency_summary = {
+                "objective": "Agent execution incomplete",
+                "actions_completed": [a.get("tool", "unknown") for a in initial_state.get("actions", [])],
+                "results_achieved": ["Partial execution - agent terminated early"],
+                "status": f"FAILED - Agent execution {error_type}",
+                "problem_location": [],
+                "success": False
+            }
+            
+            return initial_state.get("actions", []), emergency_summary
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Agent execution failed with error: {error_msg}")
+            
+            # Generate emergency summary with error details
+            emergency_summary = {
+                "objective": "Agent execution failed",
+                "actions_completed": [a.get("tool", "unknown") for a in initial_state.get("actions", [])],
+                "results_achieved": ["Execution failed due to error"],
+                "status": f"FAILED - {error_msg}",
+                "problem_location": [],
+                "success": False,
+                "error": error_msg
+            }
+            
+            return initial_state.get("actions", []), emergency_summary
 

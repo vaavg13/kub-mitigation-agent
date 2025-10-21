@@ -1,0 +1,68 @@
+BATCH_CONFIG:
+  namespace: "app-smart-manufacturing"
+  app_directory: "./APPS"
+
+  baseline_duration: 60
+  chaos_warmup_duration: 60
+  recovery_duration: 60
+
+  batch_settings:
+    experiments_count_per_type: 5
+    random_seed: 42
+    delay_between_experiments: 0
+
+  node_resources:
+    k3d-cec-emulator-agent-0: { cpus: "4", memory: "4g" }
+    k3d-cec-emulator-agent-1: { cpus: "4", memory: "4g" }
+    k3d-cec-emulator-agent-2: { cpus: "2", memory: "2g" }
+    k3d-cec-emulator-agent-3: { cpus: "2", memory: "2g" }
+    k3d-cec-emulator-agent-4: { cpus: "2", memory: "2g" }
+    k3d-cec-emulator-agent-5: { cpus: "2", memory: "2g" }
+
+  available_deployments:
+    - "sensor-data-ingestion-edge-site-1"
+    - "sensor-data-ingestion-edge-site-2"
+    - "edge-data-preprocessing-edge-site-1"
+    - "edge-data-preprocessing-edge-site-2"
+    - "real-time-anomaly-detection-edge-site-1"
+    - "real-time-anomaly-detection-edge-site-2"
+    - "local-control-actuation-edge-site-1"
+    - "local-control-actuation-edge-site-2"
+    - "predictive-maintenance-analytics-cloud"
+    - "production-optimization-engine-cloud"
+    - "inventory-supply-chain-mgmt-cloud"
+    - "centralized-data-lake-cloud"
+    - "reporting-dashboarding-cloud"
+
+  traffic_config:
+    endpoints:
+      - "http://172.23.0.5:31119/sensor-data-ingestion-edge-site-1"
+      - "http://172.23.0.5:31119/sensor-data-ingestion-edge-site-2"
+    requests_per_second: 5
+    request_timeout: 10
+    collect_metrics: true
+
+  test_settings:
+    deploy_fresh_app: true
+    cleanup_after_test: true
+    pod_ready_timeout: 300
+
+BATCH_ALERT_CONFIG:
+  alert_template: "🚨 CRITICAL INCIDENT: Performance degradation detected in namespace '{namespace}' at {timestamp}. ALERT TRIGGERS: Service latency degraded from {baseline_latency_p95} to {current_latency_p95} (degradation threshold exceeded), Success rate dropped from {baseline_success_rate}% to {current_success_rate}% (availability threshold exceeded). IMMEDIATE INVESTIGATION AND CORRECTIVE ACTION REQUIRED."
+  context_fields:
+    - "namespace"
+    - "alert_type"
+    - "timestamp"
+    - "baseline_latency_p95"
+    - "baseline_success_rate"
+    - "current_latency_p95"
+    - "current_success_rate"
+
+LOGGING_CONFIG:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  suppress_libs:
+    - "httpx"
+    - "httpcore"
+
+

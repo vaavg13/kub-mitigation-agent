@@ -92,8 +92,8 @@ class LocustTrafficGenerator:
         
         return estimated_requests
 
-    async def start_traffic(self):
-        """Start Locust-based traffic generation."""
+    def _start_traffic_sync(self):
+        """Synchronous traffic start - runs in gevent context."""
         if self.is_running:
             return
             
@@ -127,9 +127,14 @@ class LocustTrafficGenerator:
         
         # Start stats printer (but suppress it by not starting it)
         # self.stats_greenlet = gevent.spawn(stats_printer, self.environment.stats)
+    
+    async def start_traffic(self):
+        """Start Locust-based traffic generation (async wrapper)."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._start_traffic_sync)
         
-    async def stop_traffic(self):
-        """Stop Locust traffic generation."""
+    def _stop_traffic_sync(self):
+        """Synchronous traffic stop - runs in gevent context."""
         if not self.is_running:
             return
             
@@ -142,6 +147,11 @@ class LocustTrafficGenerator:
         #     self.stats_greenlet.kill()
             
         print("🛑 Locust traffic stopped")
+    
+    async def stop_traffic(self):
+        """Stop Locust traffic generation (async wrapper)."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._stop_traffic_sync)
     
     def reset_phase_metrics(self):
         """Reset metrics for a new measurement phase."""
