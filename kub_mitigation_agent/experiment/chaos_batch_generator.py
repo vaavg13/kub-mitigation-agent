@@ -58,19 +58,10 @@ class ChaosBatchGenerator:
         
         if available_deployments:
             return available_deployments
+        else:
+            raise ValueError("No available deployments found in base_config.available_deployments")
         
-        # Fallback to predefined list if not found in config
-        fallback_apps = [
-            "cloud-analytics-engine-cloud",
-            "cloud-analytics-engine-edge", 
-            "iot-gateway",
-            "data-processor",
-            "metrics-collector",
-            "edge-coordinator"
-        ]
-        
-        return fallback_apps
-    
+
     def generate_docker_constraints_configs(self, count: int = DEFAULT_CHAOS_COUNT_PER_TYPE) -> List[Dict[str, Any]]:
         """Generate random Docker constraints configurations."""
         configs = []
@@ -96,45 +87,9 @@ class ChaosBatchGenerator:
         
         return configs
     
-    def generate_chaos_mesh_configs(self, count: int = DEFAULT_CHAOS_COUNT_PER_TYPE) -> List[Dict[str, Any]]:
-        """Generate random Chaos Mesh configurations (no network)."""
-        configs = []
-        
-        for i in range(count):
-            # Randomly select fault type (cpu_stress, memory_stress, pod_failure only)
-            fault_type = random.choice(CHAOS_MESH_FAULT_TYPES)
-            intensity = random.choice(CHAOS_MESH_INTENSITIES)
-            
-            # Randomly select target mode and app
-            target_mode = random.choice(CHAOS_MESH_TARGET_MODES)
-            
-            config = {
-                "mode": "chaos_only",
-                "fault_type": fault_type,
-                "intensity": intensity,
-                "duration": "3600s",  # Set to 1 hour, will be cleaned up manually
-                "seed": self.seed,
-                "target_mode": target_mode
-            }
-            
-            # Add target-specific fields
-            if target_mode in ["one_pod", "all_pods_app"]:
-                target_app = random.choice(self.available_apps)
-                config["target_app"] = target_app
-                config["description"] = f"Chaos Mesh {fault_type} on {target_app} ({target_mode}, {intensity})"
-            elif target_mode == "all_pods_node":
-                node_name = random.choice(self.available_nodes)
-                config["node_name"] = node_name
-                config["target_app"] = "node-wide"  # Placeholder for node-level chaos
-                config["description"] = f"Chaos Mesh {fault_type} on node {node_name} ({intensity})"
-                
-            configs.append(config)
-        
-        return configs
-    
     def generate_comprehensive_batch(self, per_chaos_config_count: int = DEFAULT_CHAOS_COUNT_PER_TYPE) -> List[Dict[str, Any]]:
         """
-        Generate a comprehensive batch with exactly 5 types of anomalies.
+        Generate a comprehensive batch of anomalies.
         
         Args:
             per_chaos_config_count: Number of configurations to generate per anomaly type
@@ -255,4 +210,5 @@ class ChaosBatchGenerator:
         print(f"🔀 Configurations shuffled for random execution order")
         
         print(f"📦 Total configurations generated: {len(all_configs)}")
+
         return all_configs

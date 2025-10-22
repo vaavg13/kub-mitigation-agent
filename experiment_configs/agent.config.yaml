@@ -1,6 +1,6 @@
 llm:
-  provider: anthropic           # openai | anthropic | google | xai
-  model: claude-sonnet-4-5-20250929 # gpt-4.1 | gpt-5 | claude-sonnet-4-5-20250929
+  provider: xai           # openai | anthropic | google | xai
+  model: grok-4-fast-non-reasoning # gpt-4.1 | gpt-5 | claude-sonnet-4-5-20250929
   temperature: 0.2
   max_tokens: 4096
   request_timeout: 120

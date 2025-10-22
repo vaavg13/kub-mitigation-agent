@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import shlex
 from typing import List, Optional, Dict, Any
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -27,6 +28,10 @@ class KubernetesAgentConfig(BaseModel):
     reasoning_in_context: bool = Field(default=os.getenv("AGENT_REASONING_IN_CONTEXT", "true").lower() == "true")
     agent_timeout: int = Field(default=int(os.getenv("AGENT_TIMEOUT", "120")))
     agent_verbose: bool = Field(default=os.getenv("AGENT_VERBOSE", "false").lower() == "true")
+    agent_type: Literal["graph", "react"] = Field(default=os.getenv("AGENT_TYPE", "graph"))
+
+    # Experiment tracking
+    experiment_id: Optional[str] = Field(default=None, description="Unique identifier for experiment")
 
     # MCP
     mcp_server_command: List[str] = Field(default_factory=lambda: os.getenv("MCP_SERVER_COMMAND", "node ./mcp-server-kubernetes/dist/index.js").split(" "))
@@ -64,6 +69,8 @@ class KubernetesAgentConfig(BaseModel):
             show_reasoning=bool(agent.get("show_reasoning", os.getenv("AGENT_SHOW_REASONING", "true").lower() == "true")),
             reasoning_in_context=bool(agent.get("reasoning_in_context", os.getenv("AGENT_REASONING_IN_CONTEXT", "true").lower() == "true")),
             agent_verbose=bool(agent.get("verbose", os.getenv("AGENT_VERBOSE", "false").lower() == "true")),
+            experiment_id=agent.get("experiment_id"),
+            agent_type=str(agent.get("type", os.getenv("AGENT_TYPE", "graph"))).lower(),
 
             # MCP
             mcp_server_command=server_cmd,

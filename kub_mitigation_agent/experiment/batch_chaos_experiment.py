@@ -8,32 +8,44 @@ import asyncio
 import time
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 from .chaos_mitigation_experiment import ChaosAndMitigationExperiment
-from .experiment_utils import deploy_fresh_app_sync, undeploy_app_sync
+from .experiment_utils import deploy_fresh_app_sync, undeploy_app_sync, reset_scheduling_policies
 from .simple_experiment_logger import SimpleExperimentLogger
+from .chaos_batch_generator import ChaosBatchGenerator, DEFAULT_CHAOS_COUNT_PER_TYPE, DEFAULT_SEED
 from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
-from ..anomalies.chaos_mesh_handler import ChaosMeshHandler
-import os
-import subprocess
+from ..agent.config import KubernetesAgentConfig
 
 logger = logging.getLogger(__name__)
 
 class BatchChaosExperiment:
     """Orchestrates multiple chaos experiments with complete isolation."""
     
-    def __init__(self, batch_config: Dict[str, Any], output_base_dir: str = "DATA"):
+    def __init__(self, batch_config: Dict[str, Any], output_base_dir: str = "DATA", agent_config: KubernetesAgentConfig = None):
         """
         Initialize batch experiment.
         
         Args:
-            batch_config: Complete batch configuration from batch_config.py
+            batch_config: Complete batch configuration (required)
             output_base_dir: Base directory for dataset logs
+            agent_config: Agent configuration for all experiments (required)
         """
+        # Validate required configurations
+        assert batch_config is not None, "batch_config is required - cannot run batch experiments without configuration"
+        assert agent_config is not None, "agent_config is required - cannot run experiments without agent configuration"
+        
         self.batch_config = batch_config
-        self.chaos_configs = batch_config.get("chaos_configurations", [])
         self.batch_settings = batch_config.get("batch_settings", {})
         self.output_base_dir = output_base_dir
+        self.agent_config = agent_config
+        
+        # Generate chaos configurations internally using ChaosBatchGenerator
+        experiment_count_per_type = self.batch_settings.get("experiments_count_per_type", DEFAULT_CHAOS_COUNT_PER_TYPE)
+        random_seed = self.batch_settings.get("random_seed", DEFAULT_SEED)
+        
+        print(f"🎲 Generating chaos configurations (seed: {random_seed}, {experiment_count_per_type} per type)")
+        generator = ChaosBatchGenerator(batch_config, seed=random_seed)
+        self.chaos_configs = generator.generate_comprehensive_batch(experiment_count_per_type)
         
         # Extract namespace/application name from config
         namespace = self.batch_config.get("namespace", "unknown-app")
@@ -56,7 +68,7 @@ class BatchChaosExperiment:
         
         # Initialize handlers with base config
         self.docker_handler = DockerConstraintsHandler(self.batch_config)
-        self.chaos_mesh_handler = None  # Keep this lazy since it's rarely used directly
+        self.chaos_mesh_handler = None
     
     def _create_experiment_config(self, chaos_config: Dict[str, Any]) -> Dict[str, Any]:
         """Create complete experiment config by adding chaos config to batch config."""
@@ -64,76 +76,46 @@ class BatchChaosExperiment:
         experiment_config["chaos_config"] = chaos_config
         return experiment_config
 
-    
     def _create_experiment_id(self, index: int, chaos_config: Dict[str, Any]) -> str:
         """Create unique experiment ID."""
         mode = chaos_config.get("mode", "unknown")
         fault_type = chaos_config.get("fault_type", "unknown")
         return f"exp_{index+1:03d}_{mode}_{fault_type}"
     
-    def reset_scheduling_policies(self) -> bool:
-        """Reset all scheduling policies and node constraints to clean state between experiments."""
-        print(f"🔄 Resetting scheduling policies...", end="")
-        
-        try:
-            # 1. Reset Docker node constraints to proper specifications
-            docker_reset_success = self.docker_handler.reset_all_node_docker_constraints()
-            
-            # 2. Clean up any remaining Chaos Mesh experiments
-            chaos_cleanup_success = True
-            try:
-                # Direct kubectl cleanup without needing ChaosMeshHandler
-                cleanup_cmd = "kubectl delete stresschaos,podchaos,networkchaos --all --all-namespaces --ignore-not-found=true"
-                import subprocess
-                result = subprocess.run(cleanup_cmd.split(), capture_output=True, text=True, timeout=30)
-                if result.returncode != 0:
-                    chaos_cleanup_success = False
-            except Exception as e:
-                chaos_cleanup_success = False
-            
-            overall_success = docker_reset_success and chaos_cleanup_success
-            
-            if overall_success:
-                print(" ✅ Done")
-            else:
-                print(" ⚠️  Some issues occurred")
-                
-            return overall_success
-            
-        except Exception as e:
-            print(f" ❌ Error: {e}")
-            return False
-    
-    async def run_single_experiment(self, 
-                                  experiment_config: Dict[str, Any], 
-                                  alert_config: Dict[str, Any],
-                                  experiment_id: str,
-                                  index: int) -> Dict[str, Any]:
+    async def run_single_experiment(
+        self, 
+        experiment_config: Dict[str, Any],
+        experiment_id: str,
+        index: int
+    ) -> Dict[str, Any]:
         """Run a single isolated experiment with complete deployment cycle."""
         print(f"\n{'='*70}")
         print(f"🧪 EXPERIMENT {index + 1}/{len(self.chaos_configs)}: {experiment_id}")
         print(f"   Mode: {experiment_config['chaos_config']['mode']} | Type: {experiment_config['chaos_config']['fault_type']} | Intensity: {experiment_config['chaos_config']['intensity']}")
         print(f"{'='*70}")
         
-        # Start logging this experiment
-        self.simple_logger.start_experiment(
-            experiment_id=experiment_id,
-            batch_id=self.batch_results["batch_id"],
-            experiment_index=index + 1,
-            chaos_config=experiment_config["chaos_config"],
-            namespace=experiment_config["namespace"]
-        )
+        # Track experiment execution time
+        experiment_start_time = time.time()
         
+        # Initialize result structure with defaults
         experiment_result = {
             "experiment_id": experiment_id,
             "index": index + 1,
             "chaos_config": experiment_config["chaos_config"].copy(),
+            "namespace": experiment_config["namespace"],
             "started_at": datetime.now().isoformat(),
+            "completed_at": None,
+            "experiment_duration_seconds": 0,
             "success": False,
             "error": None,
-            "results": None,
-            "completed_at": None,
-            "dataset_record_saved": False
+            "agent_actions": [],
+            "recovery_successful": False,
+            "recovery_reason": "",
+            "phase_metrics": {},
+            "agent_success": False,
+            "agent_execution_duration_seconds": 0,
+            "operational_summary": None,
+            "location_evaluation": None
         }
         
         try:
@@ -148,103 +130,42 @@ class BatchChaosExperiment:
             print(f" ✅ Done (namespace: {namespace})")
             experiment_result["namespace"] = namespace
             
-            # Step 2: Run the chaos experiment with logging
+            # Step 2: Run the chaos experiment
             print(f"\n▶ Step 2: Running chaos experiment")
             print(f"  ├─ Chaos injection type: {experiment_config['chaos_config']['mode']} - {experiment_config['chaos_config']['fault_type']}")
             experiment = ChaosAndMitigationExperiment(
-                experiment_config, 
-                alert_config,
-                simple_logger=self.simple_logger
+                experiment_config,
+                experiment_id=experiment_id,
+                agent_config=self.agent_config
             )
             
-            # Run the experiment with already deployed app
-            results = await experiment.run_full_experiment(
-                deployment_already_done=True,
-                deployment_namespace=namespace
-            )
+            results = await experiment.run_full_experiment()
             
-            experiment_result["results"] = results
+            # Update experiment result with data from experiment
             experiment_result["success"] = results.get("success", False)
+            experiment_result["recovery_successful"] = results.get("recovery_successful", False)
+            experiment_result["recovery_reason"] = results.get("recovery_reason", "")
+            experiment_result["agent_actions"] = results.get("agent_actions", [])
+            experiment_result["phase_metrics"] = results.get("phase_metrics", {})
+            experiment_result["agent_success"] = results.get("agent_success", False)
+            experiment_result["agent_execution_duration_seconds"] = results.get("agent_execution_duration_seconds", 0)
+            experiment_result["operational_summary"] = results.get("operational_summary")
+            experiment_result["location_evaluation"] = results.get("location_evaluation")
             
-            # Extract key metrics from results
-            if results.get("dataset_logged", False):
-                experiment_result["agent_actions"] = results.get("agent_actions", [])
-                experiment_result["recovery_successful"] = results.get("recovery_successful", False)
-                experiment_result["recovery_reason"] = results.get("recovery_reason", "")
-                experiment_result["operational_summary"] = results.get("operational_summary", {})
-                experiment_result["problem_location"] = results.get("problem_location", {})
-            
-            experiment_result["completed_at"] = datetime.now().isoformat()
-            
-            # Save the experiment log
-            try:
-                saved_file = self.simple_logger.complete_experiment(
-                    success=experiment_result["success"],
-                    recovery_successful=results.get("recovery_successful", False),
-                    recovery_reason=results.get("recovery_reason", ""),
-                    error=None
-                )
-                experiment_result["dataset_record_saved"] = True
-                experiment_result["dataset_file"] = str(saved_file)
-                print(f"\n💾 Experiment log saved: {saved_file.name}")
-            except Exception as save_error:
-                logger.warning(f"Failed to save experiment log: {save_error}")
-                experiment_result["dataset_record_saved"] = False
-            
-            if experiment_result["success"]:
+            # Update batch statistics
+            if results.get("success"):
                 print(f"✅ Experiment {experiment_id} completed successfully")
                 self.batch_results["successful_experiments"] += 1
             else:
                 print(f"❌ Experiment {experiment_id} failed")
                 self.batch_results["failed_experiments"] += 1
             
-            return experiment_result
-            
-        except KeyboardInterrupt:
-            experiment_result["error"] = "Interrupted by user (Ctrl+C)"
-            experiment_result["completed_at"] = datetime.now().isoformat()
-            print(f"\n🛑 Experiment {experiment_id} interrupted by user")
-            
-            # Save interrupted experiment log
-            try:
-                saved_file = self.simple_logger.complete_experiment(
-                    success=False,
-                    recovery_successful=False,
-                    recovery_reason="Interrupted",
-                    error=experiment_result["error"]
-                )
-                experiment_result["dataset_record_saved"] = True
-                experiment_result["dataset_file"] = str(saved_file)
-            except Exception as save_error:
-                logger.warning(f"Failed to save interrupted experiment log: {save_error}")
-            
-            # Emergency cleanup
-            try:
-                print(f"🧹 Emergency cleanup for {experiment_id}...")
-                undeploy_app_sync(experiment_config)
-            except Exception as cleanup_error:
-                print(f"⚠️  Emergency cleanup warning: {cleanup_error}")
-            
-            raise  # Re-raise to stop batch
-            
         except Exception as e:
+            # Update result with error info
             experiment_result["error"] = str(e)
-            experiment_result["completed_at"] = datetime.now().isoformat()
+            experiment_result["recovery_reason"] = "Exception during execution"
             print(f"❌ Experiment {experiment_id} failed: {e}")
             self.batch_results["failed_experiments"] += 1
-            
-            # Save failed experiment log
-            try:
-                saved_file = self.simple_logger.complete_experiment(
-                    success=False,
-                    recovery_successful=False,
-                    recovery_reason="Failed",
-                    error=experiment_result["error"]
-                )
-                experiment_result["dataset_record_saved"] = True
-                experiment_result["dataset_file"] = str(saved_file)
-            except Exception as save_error:
-                logger.warning(f"Failed to save failed experiment log: {save_error}")
             
             # Cleanup after failure
             try:
@@ -252,10 +173,40 @@ class BatchChaosExperiment:
                 undeploy_app_sync(experiment_config)
             except Exception as cleanup_error:
                 print(f"⚠️  Cleanup warning: {cleanup_error}")
+        
+        finally:
+            # Calculate experiment execution time
+            experiment_result["completed_at"] = datetime.now().isoformat()
+            experiment_result["experiment_duration_seconds"] = time.time() - experiment_start_time
+            
+            try:
+                log_file = self.simple_logger.log_experiment(
+                    experiment_id=experiment_id,
+                    batch_id=self.batch_results["batch_id"],
+                    experiment_index=index + 1,
+                    namespace=experiment_result["namespace"],
+                    chaos_config=experiment_config["chaos_config"],
+                    started_at=experiment_result["started_at"],
+                    completed_at=experiment_result["completed_at"],
+                    duration_seconds=experiment_result["experiment_duration_seconds"],
+                    phase_metrics=experiment_result["phase_metrics"],
+                    agent_actions=experiment_result["agent_actions"],
+                    agent_success=experiment_result["agent_success"],
+                    agent_duration_seconds=experiment_result["agent_execution_duration_seconds"],
+                    operational_summary=experiment_result["operational_summary"],
+                    location_evaluation=experiment_result["location_evaluation"],
+                    experiment_success=experiment_result["success"],
+                    recovery_successful=experiment_result["recovery_successful"],
+                    recovery_reason=experiment_result["recovery_reason"],
+                    error=experiment_result["error"]
+                )
+                print(f"💾 Experiment log saved: {log_file.name}")
+            except Exception as log_error:
+                logger.warning(f"Failed to save experiment log: {log_error}")
             
             return experiment_result
     
-    async def run_batch(self, alert_config: Dict[str, Any]) -> Dict[str, Any]:
+    async def run_batch(self) -> Dict[str, Any]:
         """Run the complete batch of experiments."""
         print(f"\n{'='*70}")
         print(f"🎯 STARTING BATCH EXPERIMENT: {self.batch_results['batch_id']}")
@@ -267,7 +218,7 @@ class BatchChaosExperiment:
         
         # Initial policy reset before starting batch
         print(f"\n▶ Initial setup: ", end="")
-        initial_reset_success = self.reset_scheduling_policies()
+        initial_reset_success = reset_scheduling_policies(self.docker_handler)
         if not initial_reset_success:
             print(f"  ⚠️  Some issues during initial setup, continuing...")
         
@@ -279,8 +230,7 @@ class BatchChaosExperiment:
                 
                 # Run the experiment
                 experiment_result = await self.run_single_experiment(
-                    experiment_config, 
-                    alert_config, 
+                    experiment_config,
                     experiment_id, 
                     index
                 )
@@ -288,14 +238,14 @@ class BatchChaosExperiment:
                 # Store results
                 self.batch_results["experiments"].append(experiment_result)
                 
-                # Reset scheduling policies between experiments (if not the last one)
+                # Reset scheduling policies after each experiment (cleanup step)
+                print(f"\n▶ Post-experiment cleanup: ", end="")
+                reset_success = reset_scheduling_policies(self.docker_handler)
+                if not reset_success:
+                    print(f"  ⚠️  Some issues during reset, continuing...")
+                
+                # Delay between experiments (if not the last one)
                 if index < len(self.chaos_configs) - 1:
-                    print(f"\n▶ Between-experiment reset: ", end="")
-                    reset_success = self.reset_scheduling_policies()
-                    if not reset_success:
-                        print(f"  ⚠️  Some issues during reset, continuing...")
-                    
-                    # Delay between experiments (if specified)
                     delay = self.batch_settings.get("delay_between_experiments", 30)
                     if delay > 0:
                         print(f"⏸️  Waiting {delay}s before next experiment...")
@@ -304,7 +254,19 @@ class BatchChaosExperiment:
             # Mark batch as completed
             self.batch_results["completed_at"] = datetime.now().isoformat()
             
-            # Save batch summary with dataset statistics
+        except KeyboardInterrupt:
+            self.batch_results["completed_at"] = datetime.now().isoformat()
+            self.batch_results["error"] = "Batch interrupted by user (Ctrl+C)"
+            print(f"\n🛑 BATCH INTERRUPTED BY USER")
+            
+        except Exception as e:
+            self.batch_results["completed_at"] = datetime.now().isoformat()
+            self.batch_results["error"] = str(e)
+            print(f"\n❌ BATCH FAILED: {e}")
+            logger.exception("Batch execution error")
+        
+        finally:
+            # Always save batch summary (success, interrupted, or failed)
             try:
                 batch_summary_file = self.simple_logger.save_batch_summary(self.batch_results)
                 print(f"\n💾 Batch summary saved: {batch_summary_file}")
@@ -314,81 +276,4 @@ class BatchChaosExperiment:
                 logger.warning(f"Failed to save batch summary: {summary_error}")
                 self.batch_results["batch_summary_saved"] = False
             
-            # Print batch summary
-            self._print_batch_summary()
-            
             return self.batch_results
-            
-        except KeyboardInterrupt:
-            self.batch_results["completed_at"] = datetime.now().isoformat()
-            self.batch_results["error"] = "Batch interrupted by user (Ctrl+C)"
-            print(f"\n🛑 BATCH INTERRUPTED BY USER")
-            
-            # Try to save what we have
-            try:
-                batch_summary_file = self.simple_logger.save_batch_summary(self.batch_results)
-                print(f"💾 Partial batch summary saved: {batch_summary_file}")
-            except Exception as summary_error:
-                logger.warning(f"Failed to save interrupted batch summary: {summary_error}")
-            
-            self._print_batch_summary()
-            return self.batch_results
-            
-        except Exception as e:
-            self.batch_results["completed_at"] = datetime.now().isoformat()
-            self.batch_results["error"] = str(e)
-            print(f"\n❌ BATCH FAILED: {e}")
-            logger.exception("Batch execution error")
-            
-            # Try to save what we have
-            try:
-                batch_summary_file = self.simple_logger.save_batch_summary(self.batch_results)
-                print(f"💾 Error batch summary saved: {batch_summary_file}")
-            except Exception as summary_error:
-                logger.warning(f"Failed to save error batch summary: {summary_error}")
-            
-            self._print_batch_summary()
-            return self.batch_results
-    
-    def _print_batch_summary(self):
-        """Print final batch summary."""
-        print(f"\n{'='*70}")
-        print(f"📊 BATCH EXPERIMENT SUMMARY")
-        print(f"{'='*70}")
-        print(f"Batch ID: {self.batch_results['batch_id']}")
-        print(f"Duration: {self.batch_results['started_at']} → {self.batch_results.get('completed_at', 'Not completed')}")
-        print(f"\nResults:")
-        print(f"  ✅ Successful: {self.batch_results['successful_experiments']}/{self.batch_results['total_experiments']}")
-        print(f"  ❌ Failed: {self.batch_results['failed_experiments']}/{self.batch_results['total_experiments']}")
-        
-        if self.batch_results.get("error"):
-            print(f"  🚨 Batch Error: {self.batch_results['error']}")
-        
-        # Dataset statistics
-        dataset_saved_count = sum(1 for exp in self.batch_results["experiments"] if exp.get("dataset_record_saved", False))
-        agent_actions_total = sum(len(exp.get("agent_actions", [])) for exp in self.batch_results["experiments"])
-        recovery_successful_count = sum(1 for exp in self.batch_results["experiments"] if exp.get("recovery_successful", False))
-        
-        print(f"\nDataset Statistics:")
-        print(f"  📁 Output directory: {self.simple_logger.output_dir}")
-        print(f"  💾 Logs saved: {dataset_saved_count}/{len(self.batch_results['experiments'])}")
-        print(f"  🤖 Total agent actions: {agent_actions_total}")
-        print(f"  🩹 Recovery successful: {recovery_successful_count}/{len(self.batch_results['experiments'])}")
-        
-        print(f"\n{'─'*70}")
-        print(f"EXPERIMENT DETAILS:")
-        print(f"{'─'*70}")
-        
-        for exp in self.batch_results["experiments"]:
-            status = "✅" if exp["success"] else "❌"
-            chaos_mode = exp['chaos_config']['mode']
-            chaos_type = exp['chaos_config']['fault_type']
-            dataset_status = "💾" if exp.get("dataset_record_saved", False) else "⚠️"
-            agent_actions = len(exp.get("agent_actions", []))
-            
-            print(f"{status} {dataset_status} {exp['experiment_id']}")
-            print(f"    Chaos: {chaos_mode} - {chaos_type} | Actions: {agent_actions}")
-            if exp.get("error"):
-                print(f"    Error: {exp['error']}")
-        
-        print(f"{'='*70}") 

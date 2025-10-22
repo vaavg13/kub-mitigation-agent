@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
-import json
 import logging
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from .mcp_client import MCPClient
 from ..shared.prometheus_client import (
@@ -11,28 +9,8 @@ from ..shared.prometheus_client import (
     prometheus_get_node_timeseries,
     prometheus_get_service_topology,
 )
-# The agent expects tool function_name to be the Pydantic model class name
 
 logger = logging.getLogger(__name__)
-
-
-def _convert_problem_location_to_list(problem_location_param: Any) -> list[dict[str, Any]]:
-    """Maintain backward compatibility for problem_location param shapes."""
-    if isinstance(problem_location_param, list):
-        return problem_location_param
-    result: list[dict[str, Any]] = []
-    if isinstance(problem_location_param, dict):
-        for resource_type in ["deployment", "pod", "node", "service"]:
-            plural_key = f"{resource_type}s"
-            if plural_key in problem_location_param:
-                resources = problem_location_param[plural_key]
-                if isinstance(resources, list):
-                    for name in resources:
-                        result.append({"name": name, "type": resource_type})
-                elif isinstance(resources, str):
-                    result.append({"name": resources, "type": resource_type})
-    return result
-
 
 def convert_node_function_to_generic(function_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Convert node management calls (Pydantic model names) to kubectl_generic arguments."""

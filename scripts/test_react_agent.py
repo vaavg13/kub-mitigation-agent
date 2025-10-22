@@ -31,8 +31,9 @@ if __name__ == "__main__":
     cfg_dict = yaml.safe_load((PROJECT_ROOT / "agent.config.yaml").read_text(encoding="utf-8"))
     cfg = KubernetesAgentConfig.from_yaml_dict(cfg_dict)
 
-    # Minimal logging to surface progress
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    # Setup centralized logging
+    from kub_mitigation_agent.shared.logging_config import setup_logging
+    setup_logging()
     print("MCP command:", " ".join(cfg.mcp_server_command))
     
     # Test intent - diagnose performance issue

@@ -10,7 +10,7 @@ __pycache__/
 *.pywzz
 *.pyzzz
 *.pywzzz
-DATASET_LOGS/
+DATASET_LOGS*/
 .env
 *.egg-info
 

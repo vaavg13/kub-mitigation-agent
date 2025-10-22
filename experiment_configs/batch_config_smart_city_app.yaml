@@ -51,22 +51,4 @@ BATCH_CONFIG:
     cleanup_after_test: true
     pod_ready_timeout: 300
 
-BATCH_ALERT_CONFIG:
-  alert_template: "🚨 CRITICAL INCIDENT: Performance degradation detected in namespace '{namespace}' at {timestamp}. ALERT TRIGGERS: Service latency degraded from {baseline_latency_p95} to {current_latency_p95} (degradation threshold exceeded), Success rate dropped from {baseline_success_rate}% to {current_success_rate}% (availability threshold exceeded). IMMEDIATE INVESTIGATION AND CORRECTIVE ACTION REQUIRED."
-  context_fields:
-    - "namespace"
-    - "alert_type"
-    - "timestamp"
-    - "baseline_latency_p95"
-    - "baseline_success_rate"
-    - "current_latency_p95"
-    - "current_success_rate"
-
-LOGGING_CONFIG:
-  level: "INFO"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  suppress_libs:
-    - "httpx"
-    - "httpcore"
-
 

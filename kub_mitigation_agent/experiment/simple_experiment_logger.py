@@ -44,6 +44,9 @@ class ExperimentLog:
     operational_summary: Optional[Dict[str, Any]] = None
     problem_location: Optional[Dict[str, Any]] = None
     
+    # Evaluation results
+    location_evaluation: Optional[Dict[str, Any]] = None
+    
     # Results
     experiment_success: bool = False
     recovery_successful: bool = False
@@ -58,117 +61,133 @@ class ExperimentLog:
     final_latency_p95: Optional[float] = None
 
 class SimpleExperimentLogger:
-    """Simplified logger that saves complete experiment data once."""
+    """Clean logger that saves complete experiment data in one call."""
     
     def __init__(self, output_dir: str, batch_id: str):
         self.output_dir = Path(output_dir) / batch_id
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.current_log: Optional[ExperimentLog] = None
-        self.agent_start_time: Optional[float] = None
+    
+    def log_experiment(
+        self,
+        experiment_id: str,
+        batch_id: str,
+        experiment_index: int,
+        namespace: str,
+        chaos_config: Dict[str, Any],
+        started_at: str,
+        completed_at: str,
+        duration_seconds: float,
+        phase_metrics: Dict[str, Dict[str, Any]],
+        agent_actions: List[str],
+        agent_success: bool,
+        agent_duration_seconds: float,
+        operational_summary: Optional[Dict[str, Any]],
+        location_evaluation: Optional[Dict[str, Any]],
+        experiment_success: bool,
+        recovery_successful: bool,
+        recovery_reason: str,
+        error: Optional[str] = None
+    ) -> Path:
+        """Log complete experiment data in a single call.
         
-    def start_experiment(self, experiment_id: str, batch_id: str, experiment_index: int,
-                        chaos_config: Dict[str, Any], namespace: str) -> None:
-        """Start logging a new experiment."""
-        self.current_log = ExperimentLog(
+        Args:
+            experiment_id: Unique experiment identifier
+            batch_id: Batch this experiment belongs to
+            experiment_index: Index in batch (1-based)
+            namespace: Kubernetes namespace
+            chaos_config: Complete chaos configuration
+            started_at: ISO timestamp of experiment start
+            completed_at: ISO timestamp of experiment completion
+            duration_seconds: Total experiment duration
+            phase_metrics: Dict with keys "baseline", "chaos", "recovery" containing metrics
+            agent_actions: List of actions taken by agent
+            agent_success: Whether agent execution succeeded
+            agent_duration_seconds: Agent execution duration
+            operational_summary: Agent's operational summary with problem location
+            location_evaluation: Evaluation of problem location identification accuracy
+            experiment_success: Overall experiment success
+            recovery_successful: Whether recovery was successful
+            recovery_reason: Reason for recovery outcome
+            error: Error message if experiment failed
+            
+        Returns:
+            Path to saved log file
+        """
+        # Extract phase metrics
+        baseline = phase_metrics.get("baseline", {})
+        chaos = phase_metrics.get("chaos", {})
+        recovery = phase_metrics.get("recovery", {})
+        
+        # Create experiment log
+        log = ExperimentLog(
             experiment_id=experiment_id,
             batch_id=batch_id,
             experiment_index=experiment_index,
             namespace=namespace,
-            started_at=datetime.now().isoformat(),
-            chaos_config=chaos_config.copy(),  # Store FULL chaos config
-            # Extract searchable fields
+            started_at=started_at,
+            completed_at=completed_at,
+            duration_seconds=duration_seconds,
+            chaos_config=chaos_config.copy(),
             chaos_mode=chaos_config.get("mode", "unknown"),
             chaos_fault_type=chaos_config.get("fault_type", "unknown"),
-            chaos_intensity=str(chaos_config.get("intensity", "unknown"))
+            chaos_intensity=str(chaos_config.get("intensity", "unknown")),
+            baseline_metrics=self._simplify_metrics(baseline),
+            chaos_metrics=self._simplify_metrics(chaos),
+            recovery_metrics=self._simplify_metrics(recovery),
+            agent_actions=agent_actions,
+            agent_success=agent_success,
+            agent_duration_seconds=agent_duration_seconds,
+            operational_summary=operational_summary,
+            problem_location=operational_summary.get("problem_location") if operational_summary else None,
+            location_evaluation=location_evaluation,
+            experiment_success=experiment_success,
+            recovery_successful=recovery_successful,
+            recovery_reason=recovery_reason,
+            error=error,
+            final_success_rate=recovery.get("success_rate_percent"),
+            final_latency_p95=recovery.get("p95_latency_seconds")
         )
-        logger.info(f"📝 Started logging experiment: {experiment_id}")
         
-    def log_phase_metrics(self, phase: str, metrics: Dict[str, Any]) -> None:
-        """Log metrics for a phase (baseline, chaos, recovery)."""
-        if not self.current_log:
-            logger.warning(f"No active experiment log for phase: {phase}")
-            return
+        # Print location evaluation result
+        if location_evaluation and location_evaluation.get("location_identified") is not None:
+            if location_evaluation.get("location_identified"):
+                print(f"  🎯 Location identified correctly: {location_evaluation.get('match_details', '')}")
+            else:
+                print(f"  ❌ Location not identified: {location_evaluation.get('match_details', '')}")
+        
+        # Save to file
+        log_file = self.output_dir / f"{experiment_id}.json"
+        with open(log_file, 'w') as f:
+            json.dump(asdict(log), f, indent=2)
             
-        # Store only essential metrics
-        simplified_metrics = {
+        logger.info(f"💾 Saved experiment log: {log_file.name}")
+        return log_file
+    
+    def _simplify_metrics(self, metrics: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Extract essential metrics only."""
+        if not metrics:
+            return None
+        return {
             "total_requests": metrics.get("total_requests", 0),
             "success_rate_percent": metrics.get("success_rate_percent", 0.0),
             "p95_latency_seconds": metrics.get("p95_latency_seconds", 0.0),
-            "timestamp": datetime.now().isoformat()
         }
-        
-        if phase == "baseline":
-            self.current_log.baseline_metrics = simplified_metrics
-        elif phase == "chaos":
-            self.current_log.chaos_metrics = simplified_metrics
-        elif phase == "recovery":
-            self.current_log.recovery_metrics = simplified_metrics
-            # Update final metrics for searchability
-            self.current_log.final_success_rate = simplified_metrics["success_rate_percent"]
-            self.current_log.final_latency_p95 = simplified_metrics["p95_latency_seconds"]
-            
-    def start_agent_execution(self) -> None:
-        """Mark the start of agent execution."""
-        if self.current_log:
-            self.agent_start_time = datetime.now().timestamp()
-            
-    def complete_agent_execution(self, actions: List[str], success: bool = False, 
-                               operational_summary: Optional[Dict[str, Any]] = None) -> None:
-        """Record agent completion with actions taken and operational summary."""
-        if not self.current_log:
-            logger.warning("No active experiment log for agent completion")
-            return
-            
-        self.current_log.agent_actions = actions
-        self.current_log.agent_success = success
-        
-        if self.agent_start_time:
-            self.current_log.agent_duration_seconds = datetime.now().timestamp() - self.agent_start_time
-            
-        # Store full operational summary if provided
-        if operational_summary:
-            self.current_log.operational_summary = operational_summary
-            # Extract problem location for easy access
-            if "problem_location" in operational_summary:
-                self.current_log.problem_location = operational_summary["problem_location"]
-            
-    def complete_experiment(self, success: bool, recovery_successful: bool = False, 
-                          recovery_reason: str = "", error: Optional[str] = None) -> Path:
-        """Complete the experiment and save the log."""
-        if not self.current_log:
-            raise ValueError("No active experiment log to complete")
-            
-        # Update final fields
-        self.current_log.completed_at = datetime.now().isoformat()
-        self.current_log.experiment_success = success
-        self.current_log.recovery_successful = recovery_successful
-        self.current_log.recovery_reason = recovery_reason
-        self.current_log.error = error
-        
-        # Calculate duration
-        start_time = datetime.fromisoformat(self.current_log.started_at)
-        end_time = datetime.fromisoformat(self.current_log.completed_at)
-        self.current_log.duration_seconds = (end_time - start_time).total_seconds()
-        
-        # Save to single file
-        log_file = self.output_dir / f"{self.current_log.experiment_id}.json"
-        
-        # Convert to dict and save
-        log_dict = asdict(self.current_log)
-        with open(log_file, 'w') as f:
-            json.dump(log_dict, f, indent=2)
-            
-        logger.info(f"💾 Saved experiment log: {log_file}")
-        
-        # Clear current log
-        self.current_log = None
-        self.agent_start_time = None
-        
-        return log_file
         
     def save_batch_summary(self, batch_results: Dict[str, Any]) -> Path:
         """Save a simple batch summary."""
         summary_file = self.output_dir / "batch_summary.json"
+        
+        # Calculate location identification stats
+        total_location_checks = 0
+        correct_locations = 0
+        for exp in batch_results.get("experiments", []):
+            location_eval = exp.get("location_evaluation")
+            if location_eval and location_eval.get("location_identified") is not None:
+                total_location_checks += 1
+                if location_eval.get("location_identified"):
+                    correct_locations += 1
+        
+        location_accuracy = (correct_locations / total_location_checks * 100) if total_location_checks > 0 else 0
         
         # Create simplified summary
         summary = {
@@ -176,6 +195,9 @@ class SimpleExperimentLogger:
             "total_experiments": batch_results.get("total_experiments", 0),
             "successful_experiments": batch_results.get("successful_experiments", 0),
             "failed_experiments": batch_results.get("failed_experiments", 0),
+            "location_identification_accuracy": location_accuracy,
+            "correct_location_identifications": correct_locations,
+            "total_location_checks": total_location_checks,
             "started_at": batch_results.get("started_at"),
             "completed_at": batch_results.get("completed_at"),
             "experiments": [
@@ -183,9 +205,9 @@ class SimpleExperimentLogger:
                     "id": exp.get("experiment_id"),
                     "chaos": f"{exp['chaos_config']['mode']}_{exp['chaos_config']['fault_type']}",
                     "success": exp.get("success", False),
-                    "agent_actions": exp.get("results", {}).get("agent_actions", []) if exp.get("results") else [],
+                    "agent_actions": len(exp.get("agent_actions", [])),
                     "recovery_successful": exp.get("recovery_successful", False),
-                    "problem_location": exp.get("problem_location", {})
+                    "location_identified": exp.get("location_evaluation", {}).get("location_identified") if exp.get("location_evaluation") else None
                 }
                 for exp in batch_results.get("experiments", [])
             ]

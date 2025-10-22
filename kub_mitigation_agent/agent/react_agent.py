@@ -53,6 +53,7 @@ class ReactAgent:
         if self.is_initialized:
             return
         
+        logger.info("Initializing agent...")
         # Initialize MCP client
         self.mcp_client = MCPClient(self.cfg.mcp_server_command)
         await self.mcp_client.start()
@@ -68,10 +69,13 @@ class ReactAgent:
         # Build graph
         self.graph = self._build_graph()
         self.is_initialized = True
+        logger.info("Agent initialized successfully")
 
     async def cleanup(self):
         if self.mcp_client:
             await self.mcp_client.stop()
+        
+        self.langfuse_handler = None
         self.is_initialized = False
 
     def _build_graph(self):
@@ -83,6 +87,7 @@ class ReactAgent:
             Main agent node: Observe context, think, and decide on next action.
             Uses ReAct approach - LLM decides what tool to call based on current context.
             """
+            logger.info(f"Agent thinking (round {state.get('round', 0)})")
             messages = self._build_agent_messages(state)
             
             ai: AIMessage = await self.llm.ainvoke(
@@ -122,6 +127,7 @@ class ReactAgent:
             
             function_name = decision["tool"]
             args = decision.get("arguments", {})
+            logger.info(f"Executing tool: {function_name}")
             
             # Special handling for summary - this ends the loop
             if function_name == "GenerateOperationalSummary":
@@ -236,13 +242,13 @@ Remember: Always act based on evidence. Use clear operational language."""
         if not self.is_initialized:
             await self.initialize()
         
-        # Initialize Langfuse handler with error handling for connection issues
-        if not self.langfuse_handler:
-            try:
-                self.langfuse_handler = CallbackHandler()
-            except Exception as e:
-                logger.warning(f"Failed to initialize Langfuse handler (tracing disabled): {e}")
-                self.langfuse_handler = None
+        logger.info("Starting agent loop")
+        
+        try:
+            self.langfuse_handler = CallbackHandler()
+        except Exception as e:
+            logger.warning(f"Failed to initialize Langfuse handler (tracing disabled): {e}")
+            self.langfuse_handler = None
         
         # Initial state
         initial_state: ReactAgentState = {
@@ -256,19 +262,16 @@ Remember: Always act based on evidence. Use clear operational language."""
         }
         
         try:
-            # Build config with callbacks only if Langfuse is available
-            config = {}
-            if self.langfuse_handler:
-                config["callbacks"] = [self.langfuse_handler]
-            
-            # Run the graph
+            config = {"callbacks": [self.langfuse_handler]} if self.langfuse_handler else {}
             final_state: ReactAgentState = await self.graph.ainvoke(initial_state, config=config)
             
+            logger.info(f"Agent loop completed: {len(final_state.get('actions', []))} actions taken")
             return final_state.get("actions", []), final_state.get("final_summary")
             
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
             error_type = "timeout" if isinstance(e, asyncio.TimeoutError) else "cancelled"
-            logger.error(f"Agent execution {error_type} - generating emergency summary")
+            logger.error(f"Agent execution {error_type}")
+            logger.info("Generating emergency summary")
             
             # Generate minimal emergency summary
             emergency_summary = {
@@ -284,7 +287,8 @@ Remember: Always act based on evidence. Use clear operational language."""
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Agent execution failed with error: {error_msg}")
+            logger.error(f"Agent execution failed: {error_msg}", exc_info=True)
+            logger.info("Generating emergency summary")
             
             # Generate emergency summary with error details
             emergency_summary = {

@@ -46,6 +46,7 @@ class GraphKubernetesAgent:
     async def initialize(self):
         if self.is_initialized:
             return
+        logger.info("Initializing agent...")
         # MCP
         self.mcp_client = MCPClient(self.cfg.mcp_server_command)
         await self.mcp_client.start()
@@ -60,10 +61,13 @@ class GraphKubernetesAgent:
         # Graph
         self.graph = self._build_graph()
         self.is_initialized = True
+        logger.info("Agent initialized successfully")
 
     async def cleanup(self):
         if self.mcp_client:
             await self.mcp_client.stop()
+        
+        self.langfuse_handler = None
         self.is_initialized = False
 
     def _build_graph(self):
@@ -71,11 +75,11 @@ class GraphKubernetesAgent:
 
         async def reasoning(state: AgentState) -> AgentState:
             """Reasoning module: analyze, evaluate, plan using reasoning tools."""
+            logger.info(f"Reasoning (round {state.get('round', 0)})")
             messages = self._build_reasoning_messages(state)
-            ai: AIMessage = await self.llm_reasoning.ainvoke(
-                messages,
-                config={"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None,
-            )
+            
+            config = {"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None
+            ai: AIMessage = await self.llm_reasoning.ainvoke(messages, config=config)
             
             if not ai.tool_calls:
                 logger.warning("Reasoning did not call a tool")
@@ -132,17 +136,18 @@ class GraphKubernetesAgent:
 
         async def controller(state: AgentState) -> AgentState:
             """Controller: execute the current plan step using execution tools."""
+            logger.info(f"Controller (step {state.get('current_step_index', 0)})")
             messages = self._build_controller_messages(state)
-            ai: AIMessage = await self.llm_controller.ainvoke(
-                messages,
-                config={"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None,
-            )
+            
+            config = {"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None
+            ai: AIMessage = await self.llm_controller.ainvoke(messages, config=config)
             
             if not ai.tool_calls:
                 # No tool call - add context message to help reasoning understand what happened
                 logger.warning("Controller did not call a tool")
                 return {
-                    "context": state.get("context", []) + ["SYSTEM: Controller failed to produce a tool call. Reasoning should analyze why and decide next steps."]
+                    "context": state.get("context", []) + ["SYSTEM: Controller failed to produce a tool call. Reasoning should analyze why and decide next steps."],
+                    "decision": {}  # Clear any previous decision to ensure proper routing
                 }
             
             tc = ai.tool_calls[0]
@@ -159,6 +164,7 @@ class GraphKubernetesAgent:
             
             function_name = decision["tool"]
             args = decision.get("arguments", {})
+            logger.info(f"Executing tool: {function_name}")
             result, state_delta, action_record = await self.router.execute(function_name, args, state)
             
             action_record["result"] = result
@@ -173,11 +179,11 @@ class GraphKubernetesAgent:
 
         async def summarize(state: AgentState) -> AgentState:
             """Generate operational summary after plan completion using structured output."""
+            logger.info("Generating operational summary")
             messages = self._build_summarize_messages(state)
-            summary_obj: GenerateOperationalSummary = await self.llm_summarize.ainvoke(
-                messages,
-                config={"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None,
-            )
+            
+            config = {"callbacks": [self.langfuse_handler]} if self.langfuse_handler else None
+            summary_obj: GenerateOperationalSummary = await self.llm_summarize.ainvoke(messages, config=config)
             
             # Convert Pydantic model to dict for state storage
             problem_locations = []
@@ -293,13 +299,13 @@ class GraphKubernetesAgent:
         if not self.is_initialized:
             await self.initialize()
         
-        # Initialize Langfuse handler with error handling for connection issues
-        if not self.langfuse_handler:
-            try:
-                self.langfuse_handler = CallbackHandler()
-            except Exception as e:
-                logger.warning(f"Failed to initialize Langfuse handler (tracing disabled): {e}")
-                self.langfuse_handler = None
+        logger.info("Starting agent loop")
+        
+        try:
+            self.langfuse_handler = CallbackHandler()
+        except Exception as e:
+            logger.warning(f"Failed to initialize Langfuse handler (tracing disabled): {e}")
+            self.langfuse_handler = None
         
         initial_state: AgentState = {
             "intent": intent,
@@ -309,18 +315,17 @@ class GraphKubernetesAgent:
         }
         
         try:
-            # Build config with callbacks only if Langfuse is available
             config = {"recursion_limit": 100}
-            if self.langfuse_handler:
-                config["callbacks"] = [self.langfuse_handler]
             
             final_state: AgentState = await self.graph.ainvoke(initial_state, config=config)
             
+            logger.info(f"Agent loop completed: {len(final_state.get('actions', []))} actions taken")
             return final_state.get("actions", []), final_state.get("final_summary")
             
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
             error_type = "timeout" if isinstance(e, asyncio.TimeoutError) else "cancelled"
-            logger.error(f"Agent execution {error_type} - generating emergency summary")
+            logger.error(f"Agent execution {error_type}")
+            logger.info("Generating emergency summary")
             
             # Generate minimal emergency summary
             emergency_summary = {
@@ -336,7 +341,8 @@ class GraphKubernetesAgent:
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Agent execution failed with error: {error_msg}")
+            logger.error(f"Agent execution failed: {error_msg}", exc_info=True)
+            logger.info("Generating emergency summary")
             
             # Generate emergency summary with error details
             emergency_summary = {

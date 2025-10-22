@@ -1,53 +1,14 @@
 #!/usr/bin/env python3
 """
 Experiment Utilities
-Helper functions for experiment configuration and validation.
+Helper functions for experiment deployment and cleanup.
 """
 
-import asyncio
 import time
 import subprocess
 from typing import Dict, Any
 from kubernetes import client, config
 from mu_bench.deployers.manager import K8sDeploymentManager
-
-def validate_config(config):
-    """Validate that all required configuration is present.
-
-    Agent config is now loaded from YAML separately; do not require it here.
-    """
-    required_fields = [
-        "namespace", "traffic_config"
-    ]
-    
-    missing_fields = []
-    
-    for field in required_fields:
-        if field not in config:
-            missing_fields.append(field)
-    
-    # Validate chaos config based on mode
-    chaos_config = config.get("chaos_config", {})
-    mode = chaos_config.get("mode")
-    
-    if mode == "chaos_only":
-        # For chaos_only mode, target_app is required
-        if "target_app" not in chaos_config:
-            missing_fields.append("chaos_config.target_app")
-    
-    if missing_fields:
-        raise ValueError(f"Missing required configuration fields: {missing_fields}")
-    
-    # Validate traffic config
-    traffic_required = ["endpoints", "requests_per_second", "request_timeout"]
-    for field in traffic_required:
-        if field not in config["traffic_config"]:
-            missing_fields.append(f"traffic_config.{field}")
-    
-    if missing_fields:
-        raise ValueError(f"Missing required configuration fields: {missing_fields}")
-    
-    return True 
 
 def wait_for_pods_ready_sync(namespace: str, timeout: int = 300) -> bool:
     """Wait for all pods in namespace to be ready (synchronous version)."""
@@ -160,20 +121,41 @@ def undeploy_app_sync(experiment_config):
         print(f"Undeployment error: {e}")
         return False
 
-def extract_prometheus_latency(prometheus_metrics: Dict[str, Any], namespace: str) -> str:
-    """Extract average P95 latency value as simple number."""
-    if not prometheus_metrics or not prometheus_metrics.get("metrics", {}).get("istio_latency"):
-        return "unknown"
+def reset_scheduling_policies(docker_handler) -> bool:
+    """Reset all scheduling policies and node constraints to clean state.
     
-    istio_data = prometheus_metrics["metrics"]["istio_latency"].get("data", [])
-    if not istio_data:
-        return "unknown"
+    Args:
+        docker_handler: DockerConstraintsHandler instance for resetting node constraints
+        
+    Returns:
+        True if reset was successful, False otherwise
+    """
+    print(f"🔄 Resetting scheduling policies...", end="")
     
-    # Filter for target namespace
-    target_services = [s for s in istio_data if s.get("namespace") == namespace]
-    if not target_services:
-        return "unknown"
-    
-    # Return average latency as a simple number
-    avg_latency = sum(s.get("p95_latency_ms", 0) for s in target_services) / len(target_services)
-    return f"{avg_latency:.1f}" 
+    try:
+        # 1. Reset Docker node constraints to proper specifications
+        docker_reset_success = docker_handler.reset_all_node_docker_constraints()
+        
+        # 2. Clean up any remaining Chaos Mesh experiments
+        chaos_cleanup_success = True
+        try:
+            # Direct kubectl cleanup without needing ChaosMeshHandler
+            cleanup_cmd = "kubectl delete stresschaos,podchaos,networkchaos --all --all-namespaces --ignore-not-found=true"
+            result = subprocess.run(cleanup_cmd.split(), capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                chaos_cleanup_success = False
+        except Exception as e:
+            chaos_cleanup_success = False
+        
+        overall_success = docker_reset_success and chaos_cleanup_success
+        
+        if overall_success:
+            print(" ✅ Done")
+        else:
+            print(" ⚠️  Some issues occurred")
+            
+        return overall_success
+        
+    except Exception as e:
+        print(f" ❌ Error: {e}")
+        return False
