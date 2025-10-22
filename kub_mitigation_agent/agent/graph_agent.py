@@ -48,7 +48,10 @@ class GraphKubernetesAgent:
             return
         logger.info("Initializing agent...")
         # MCP
-        self.mcp_client = MCPClient(self.cfg.mcp_server_command)
+        self.mcp_client = MCPClient(
+            self.cfg.mcp_server_command,
+            response_timeout_seconds=self.cfg.mcp_timeout_seconds,
+        )
         await self.mcp_client.start()
         await self.mcp_client.initialize()
         # LLM with separate tool bindings

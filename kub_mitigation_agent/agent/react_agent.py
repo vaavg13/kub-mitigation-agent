@@ -55,7 +55,10 @@ class ReactAgent:
         
         logger.info("Initializing agent...")
         # Initialize MCP client
-        self.mcp_client = MCPClient(self.cfg.mcp_server_command)
+        self.mcp_client = MCPClient(
+            self.cfg.mcp_server_command,
+            response_timeout_seconds=self.cfg.mcp_timeout_seconds,
+        )
         await self.mcp_client.start()
         await self.mcp_client.initialize()
         
@@ -96,8 +99,31 @@ class ReactAgent:
             )
             
             if not ai.tool_calls:
-                logger.warning("Agent did not call a tool, ending execution")
-                return {"final_summary": {"status": "incomplete", "error": "No tool call made"}}
+                # No tool call produced; add guidance to context and continue looping
+                logger.warning("Agent did not call a tool")
+                current_round = state.get("round", 0) + 1
+                context_msg = "SYSTEM: Agent failed to produce a tool call. Re-analyze and try again."
+                # If max rounds reached, emit an emergency summary to terminate properly
+                if current_round >= self.cfg.max_rounds:
+                    emergency_summary = {
+                        "objective": "Agent execution incomplete",
+                        "actions_completed": [a.get("tool", "unknown") for a in state.get("actions", [])],
+                        "results_achieved": ["Maximum rounds reached"],
+                        "status": "FAILED - Maximum rounds reached",
+                        "problem_location": [],
+                        "success": False
+                    }
+                    return {
+                        "context": state.get("context", []) + [context_msg, "OPERATION COMPLETE: FAILED - Maximum rounds reached"],
+                        "round": current_round,
+                        "final_summary": emergency_summary,
+                        "decision": {}
+                    }
+                return {
+                    "context": state.get("context", []) + [context_msg],
+                    "round": current_round,
+                    "decision": {}
+                }
             
             # Extract first tool call
             tc = ai.tool_calls[0]
@@ -158,12 +184,26 @@ class ReactAgent:
             
             new_context = [f"OBSERVATION: {result_str}"]
             
-            return {
+            next_round = state.get("round", 0) + 1
+            new_state = {
                 **state_delta,
                 "context": state.get("context", []) + new_context,
                 "actions": state.get("actions", []) + [action_record],
-                "round": state.get("round", 0) + 1,
+                "round": next_round,
             }
+            # If we've hit the max rounds, emit an emergency summary so we terminate with a summary
+            if next_round >= self.cfg.max_rounds:
+                emergency_summary = {
+                    "objective": "Agent execution incomplete",
+                    "actions_completed": [a.get("tool", "unknown") for a in new_state.get("actions", [])],
+                    "results_achieved": ["Maximum rounds reached"],
+                    "status": "FAILED - Maximum rounds reached",
+                    "problem_location": [],
+                    "success": False
+                }
+                new_state["final_summary"] = emergency_summary
+                new_state["context"] = new_state.get("context", []) + ["OPERATION COMPLETE: FAILED - Maximum rounds reached"]
+            return new_state
 
         # Add nodes
         graph.add_node("agent", agent)
@@ -171,24 +211,18 @@ class ReactAgent:
 
         # Define routing logic
         def route_after_agent(state: ReactAgentState):
-            """Route from agent: if has decision, go to tool_exec, else end."""
-            if "decision" in state and state.get("decision", {}).get("tool"):
-                return "tool_exec"
-            else:
-                return END
-
-        def route_after_tool(state: ReactAgentState):
-            """Route from tool_exec: if summary generated, end, else continue loop."""
-            # Check if we've completed (summary generated)
+            """Route from agent: end only when final_summary is present; else continue."""
             if state.get("final_summary"):
                 return END
-            
-            # Check max rounds
-            if state.get("round", 0) >= self.cfg.max_rounds:
-                logger.warning(f"Max rounds ({self.cfg.max_rounds}) reached")
+            if "decision" in state and state.get("decision", {}).get("tool"):
+                return "tool_exec"
+            # No decision and no summary; continue trying
+            return "agent"
+
+        def route_after_tool(state: ReactAgentState):
+            """Route from tool_exec: end only when summary present, else continue loop."""
+            if state.get("final_summary"):
                 return END
-            
-            # Continue the loop
             return "agent"
 
         # Set up graph flow
@@ -262,11 +296,23 @@ Remember: Always act based on evidence. Use clear operational language."""
         }
         
         try:
-            config = {"callbacks": [self.langfuse_handler]} if self.langfuse_handler else {}
+            config = {"recursion_limit": 100}
             final_state: ReactAgentState = await self.graph.ainvoke(initial_state, config=config)
             
             logger.info(f"Agent loop completed: {len(final_state.get('actions', []))} actions taken")
-            return final_state.get("actions", []), final_state.get("final_summary")
+            # Ensure we always return an operational summary
+            final_summary = final_state.get("final_summary")
+            if not final_summary:
+                emergency_summary = {
+                    "objective": "Agent execution incomplete",
+                    "actions_completed": [a.get("tool", "unknown") for a in final_state.get("actions", [])],
+                    "results_achieved": ["Execution ended without summary"],
+                    "status": "FAILED - No summary generated",
+                    "problem_location": [],
+                    "success": False
+                }
+                final_summary = emergency_summary
+            return final_state.get("actions", []), final_summary
             
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
             error_type = "timeout" if isinstance(e, asyncio.TimeoutError) else "cancelled"

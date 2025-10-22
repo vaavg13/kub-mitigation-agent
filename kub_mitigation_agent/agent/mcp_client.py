@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 import asyncio
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 class MCPClient:
-    def __init__(self, server_command: list):
+    def __init__(self, server_command: list, response_timeout_seconds: int = 60):
         self.server_command = server_command
-        self.process = None
+        self.process: Optional[asyncio.subprocess.Process] = None
         self.request_id = 1
+        self._send_lock = asyncio.Lock()
+        self._stderr_task: Optional[asyncio.Task] = None
+        self.response_timeout_seconds = response_timeout_seconds
 
     async def start(self):
         self.process = await asyncio.create_subprocess_exec(
@@ -16,6 +19,26 @@ class MCPClient:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
+        # Drain stderr continuously to avoid blocking due to pipe backpressure
+        async def _drain_stderr(reader: asyncio.StreamReader):
+            try:
+                while True:
+                    line = await reader.readline()
+                    if not line:
+                        break
+                    # Intentionally ignore or log elsewhere if needed
+                    # Using print avoids tight coupling with logging setup here
+                    # but keeps the pipe drained.
+                    try:
+                        print(f"[MCP-STDERR] {line.decode(errors='replace').rstrip()}")
+                    except Exception:
+                        pass
+            except Exception:
+                # Silently exit on any errors; goal is just to keep the pipe drained
+                pass
+
+        if self.process and self.process.stderr:
+            self._stderr_task = asyncio.create_task(_drain_stderr(self.process.stderr))
 
     async def send_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         request = {
@@ -25,11 +48,15 @@ class MCPClient:
             "params": params or {}
         }
         self.request_id += 1
-        
-        request_json = json.dumps(request) + "\n"
-        self.process.stdin.write(request_json.encode())
-        await self.process.stdin.drain()
-        
+        # Serialize writes and reads to avoid interleaving between concurrent tool calls
+        async with self._send_lock:
+            request_json = json.dumps(request) + "\n"
+            if not self.process or not self.process.stdin or not self.process.stdout:
+                raise RuntimeError("MCP server process is not started")
+
+            self.process.stdin.write(request_json.encode())
+            await self.process.stdin.drain()
+
         # Read response handling large kubectl outputs
         # The default asyncio StreamReader limit (~64KB) is too small for large cluster outputs
         chunks = []
@@ -38,7 +65,7 @@ class MCPClient:
                 try:
                     chunk = await asyncio.wait_for(
                         self.process.stdout.readuntil(b'\n'),
-                        timeout=30
+                        timeout=self.response_timeout_seconds
                     )
                     chunks.append(chunk)
                     break
@@ -49,7 +76,7 @@ class MCPClient:
                     chunks.append(chunk)
                     # Continue reading until we find the newline
         except asyncio.TimeoutError:
-            raise RuntimeError("MCP server did not respond within 30 seconds")
+            raise RuntimeError(f"MCP server did not respond within {self.response_timeout_seconds} seconds")
         
         response_line = b''.join(chunks)
         if not response_line:
@@ -77,6 +104,13 @@ class MCPClient:
                 if self.process.stdin:
                     self.process.stdin.close()
                     await self.process.stdin.wait_closed()
+                # Cancel stderr draining task if running
+                if self._stderr_task:
+                    self._stderr_task.cancel()
+                    try:
+                        await self._stderr_task
+                    except Exception:
+                        pass
                 
                 # Wait for process to exit gracefully first
                 try:

@@ -55,9 +55,6 @@ class ChaosAndMitigationExperiment:
         self.chaos_mesh_handler = ChaosMeshHandler(self.config)        
         self.traffic_generator = LocustTrafficGenerator(self.config["traffic_config"])
         
-        # Set experiment_id in agent config before creating agent
-        if self.experiment_id:
-            self.agent_config.experiment_id = self.experiment_id
         self.agent = KubernetesAgent(self.agent_config)
  
     async def inject_chaos(self) -> bool:

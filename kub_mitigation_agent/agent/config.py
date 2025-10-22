@@ -23,20 +23,13 @@ class KubernetesAgentConfig(BaseModel):
     xai_base_url: Optional[str] = Field(default_factory=lambda: os.getenv("XAI_BASE_URL"))
 
     # Agent behavior
-    max_rounds: int = Field(default=int(os.getenv("AGENT_MAX_ROUNDS", "10")))
-    show_reasoning: bool = Field(default=os.getenv("AGENT_SHOW_REASONING", "true").lower() == "true")
-    reasoning_in_context: bool = Field(default=os.getenv("AGENT_REASONING_IN_CONTEXT", "true").lower() == "true")
-    agent_timeout: int = Field(default=int(os.getenv("AGENT_TIMEOUT", "120")))
-    agent_verbose: bool = Field(default=os.getenv("AGENT_VERBOSE", "false").lower() == "true")
-    agent_type: Literal["graph", "react"] = Field(default=os.getenv("AGENT_TYPE", "graph"))
-
-    # Experiment tracking
-    experiment_id: Optional[str] = Field(default=None, description="Unique identifier for experiment")
+    max_rounds: int = Field(default=10)
+    agent_timeout: int = Field(default=120)
+    agent_type: Literal["graph", "react"] = Field(default="graph")
 
     # MCP
-    mcp_server_command: List[str] = Field(default_factory=lambda: os.getenv("MCP_SERVER_COMMAND", "node ./mcp-server-kubernetes/dist/index.js").split(" "))
-
-    # (LangSmith config is loaded via environment/.env, not through this model)
+    mcp_server_command: List[str] = Field(default_factory=lambda: ["node", "./mcp-server-kubernetes/dist/index.js"])
+    mcp_timeout_seconds: int = Field(default=int(os.getenv("MCP_TIMEOUT_SECONDS", "90")))
 
     @classmethod
     def from_yaml_dict(cls, y: Dict[str, Any]) -> "KubernetesAgentConfig":
@@ -45,7 +38,6 @@ class KubernetesAgentConfig(BaseModel):
         llm = y.get("llm", {}) or {}
         agent = y.get("agent", {}) or {}
         mcp = y.get("mcp", {}) or {}
-        # LangSmith settings are not read from YAML; environment should be used instead.
 
         server_cmd_raw = mcp.get("server_command")
         if isinstance(server_cmd_raw, str):
@@ -56,23 +48,24 @@ class KubernetesAgentConfig(BaseModel):
             server_cmd = os.getenv("MCP_SERVER_COMMAND", "node ./mcp-server-kubernetes/dist/index.js").split(" ")
 
         return cls(
-            # LLM
-            provider=llm.get("provider", os.getenv("LLM_PROVIDER", "openai")),
-            model=llm.get("model", os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1"))),
-            temperature=float(llm.get("temperature", os.getenv("LLM_TEMPERATURE", "0.2"))),
-            max_tokens=int(llm.get("max_tokens", os.getenv("LLM_MAX_TOKENS", "4096"))),
-            request_timeout=int(llm.get("request_timeout", os.getenv("LLM_REQUEST_TIMEOUT", "120"))),
+            # LLM - use YAML values, fall back to defaults if not present
+            provider=llm.get("provider", "openai"),
+            model=llm.get("model", "gpt-4.1"),
+            temperature=float(llm.get("temperature", "0.2")),
+            max_tokens=int(llm.get("max_tokens", "4096")),
+            request_timeout=int(llm.get("request_timeout", "120")),
 
-            # Agent behavior
-            max_rounds=int(agent.get("max_rounds", os.getenv("AGENT_MAX_ROUNDS", "10"))),
-            agent_timeout=int(agent.get("timeout", os.getenv("AGENT_TIMEOUT", "120"))),
-            show_reasoning=bool(agent.get("show_reasoning", os.getenv("AGENT_SHOW_REASONING", "true").lower() == "true")),
-            reasoning_in_context=bool(agent.get("reasoning_in_context", os.getenv("AGENT_REASONING_IN_CONTEXT", "true").lower() == "true")),
-            agent_verbose=bool(agent.get("verbose", os.getenv("AGENT_VERBOSE", "false").lower() == "true")),
-            experiment_id=agent.get("experiment_id"),
-            agent_type=str(agent.get("type", os.getenv("AGENT_TYPE", "graph"))).lower(),
+            # Agent behavior - use YAML values, fall back to defaults if not present
+            max_rounds=int(agent.get("max_rounds", "10")),
+            agent_timeout=int(agent.get("timeout", "120")),
+            agent_type=str(
+                agent.get(
+                    "agent_type",
+                    agent.get("type", "graph")
+                )
+            ).lower(),
 
             # MCP
             mcp_server_command=server_cmd,
-
+            mcp_timeout_seconds=int(mcp.get("timeout_seconds", os.getenv("MCP_TIMEOUT_SECONDS", "90"))),
         )
