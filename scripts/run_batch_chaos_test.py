@@ -27,6 +27,12 @@ def parse_arguments():
         default=REPO_ROOT / "experiment_configs" / "batch_config_iot_gateway_app.yaml",
         help="Path to YAML batch config"
     )
+    parser.add_argument(
+        "--resume-from",
+        type=int,
+        default=None,
+        help="Resume batch from specified experiment number (1-indexed, e.g., 5 to start from experiment 5)"
+    )
     return parser.parse_args()
 
 
@@ -54,7 +60,8 @@ async def main():
     batch_experiment = BatchChaosExperiment(
         batch_config,
         output_base_dir="DATASET_LOGS",
-        agent_config=agent_config
+        agent_config=agent_config,
+        resume_from=args.resume_from
     )
     
     results = await batch_experiment.run_batch()

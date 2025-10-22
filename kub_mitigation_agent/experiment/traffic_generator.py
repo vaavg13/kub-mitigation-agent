@@ -6,7 +6,6 @@ from typing import Dict, List
 from locust import HttpUser, task, between, events
 from locust.env import Environment
 from locust.stats import stats_printer, stats_history
-from locust.log import setup_logging
 import gevent
 
 logger = logging.getLogger(__name__)
@@ -53,8 +52,8 @@ class LocustTrafficGenerator:
         self.phase_start_time = None
         self.actual_users = 0  # Track actual user count for realistic calculations
         
-        # Setup Locust logging to be quiet
-        setup_logging("WARNING", None)
+        # Suppress Locust's verbose logging using standard Python logging
+        logging.getLogger("locust").setLevel(logging.WARNING)
         
     def _extract_endpoints_paths(self) -> List[str]:
         """Extract just the paths from full endpoint URLs."""

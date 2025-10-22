@@ -281,6 +281,25 @@ class ChaosAndMitigationExperiment:
             results["problem_location"] = operational_summary.get("problem_location", []) if operational_summary else []
             results["phases_completed"].append("agent_execution")
             
+            # Print operational summary
+            if operational_summary:
+                print(f"\n📋 Operational Summary:")
+                print(f"  • Objective: {operational_summary.get('objective', 'N/A')}")
+                print(f"  • Status: {operational_summary.get('status', 'N/A')}")
+                print(f"  • Success: {'✅' if operational_summary.get('success') else '❌'}")
+                if operational_summary.get('problem_location'):
+                    print(f"  • Problem Location:")
+                    for loc in operational_summary['problem_location']:
+                        print(f"    - {loc.get('type', 'unknown')}: {loc.get('name', 'N/A')}")
+                if operational_summary.get('actions_completed'):
+                    print(f"  • Actions: {', '.join(operational_summary['actions_completed'])}")
+                if operational_summary.get('results_achieved'):
+                    print(f"  • Results:")
+                    for result in operational_summary['results_achieved']:
+                        print(f"    - {result}")
+            else:
+                print(f"\n⚠️  No operational summary generated")
+            
             # === PHASE 4: RECOVERY METRICS ===
             print(f"\n▶ Phase 4: Recovery metrics ({self.config['recovery_duration']}s)")
             # Reset metrics at START of recovery measurement phase (after agent execution)
@@ -290,6 +309,27 @@ class ChaosAndMitigationExperiment:
             recovery_metrics = self.traffic_generator.get_phase_metrics(self.config["recovery_duration"])
             results["phase_metrics"]["recovery"] = recovery_metrics
             print(f"  🩹 Recovery: {recovery_metrics['success_rate_percent']:.1f}% success, P95: {recovery_metrics['p95_latency_seconds']:.3f}s")
+            
+            # Evaluate problem location identification
+            problem_location = results.get("operational_summary", {}).get("problem_location") if results.get("operational_summary") else None
+            location_evaluation = evaluate_problem_location_match(
+                self.config.get("chaos_config", {}),
+                problem_location
+            )
+            results["location_evaluation"] = location_evaluation
+            
+            # Print location identification results
+            if location_evaluation["location_identified"]:
+                # Correctly identified (including empty list for baseline)
+                if location_evaluation['expected_target'] is None:
+                    print(f"  ✅ Baseline: Agent correctly reported no problem location")
+                else:
+                    print(f"  ✅ Problem location correctly identified: {location_evaluation['expected_target']}")
+            else:
+                print(f"  ❌ Problem location mismatch:")
+                expected = location_evaluation['expected_target'] or "none (baseline)"
+                print(f"     Expected: {expected}")
+                print(f"     Reported: {location_evaluation['reported_locations']}")
             
             results["phases_completed"].append("recovery")
             
@@ -301,14 +341,6 @@ class ChaosAndMitigationExperiment:
             # Evaluate metrics recovery
             recovery_evaluation = evaluate_metrics_recovery(results["phase_metrics"])
             results["recovery_evaluation"] = recovery_evaluation
-            
-            # Evaluate problem location identification
-            problem_location = results.get("operational_summary", {}).get("problem_location") if results.get("operational_summary") else None
-            location_evaluation = evaluate_problem_location_match(
-                self.config.get("chaos_config", {}),
-                problem_location
-            )
-            results["location_evaluation"] = location_evaluation
             
             # Set overall experiment success based on recovery evaluation
             results["success"] = recovery_evaluation["success"]

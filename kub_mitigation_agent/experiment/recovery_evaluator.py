@@ -106,11 +106,20 @@ def evaluate_problem_location_match(
     
     # Handle no_failure mode - no problem to identify
     if mode == "no_failure":
+        reported_names = [loc.get("name", "") for loc in (problem_location or [])]
+        # Empty list is correct for baseline (no failure)
+        correctly_identified = len(reported_names) == 0 or not any(reported_names)
+        
+        if correctly_identified:
+            match_details = "No failure injected - agent correctly reported no problem location"
+        else:
+            match_details = f"No failure injected but agent reported problem locations: {reported_names}"
+        
         return {
-            "location_identified": None,  # N/A for no_failure
-            "expected_target": "none (baseline)",
-            "reported_locations": [loc.get("name", "") for loc in (problem_location or [])],
-            "match_details": "No failure injected - location identification not applicable"
+            "location_identified": correctly_identified,
+            "expected_target": None,  # No target expected for baseline
+            "reported_locations": reported_names,
+            "match_details": match_details
         }
     
     # Extract expected target based on mode

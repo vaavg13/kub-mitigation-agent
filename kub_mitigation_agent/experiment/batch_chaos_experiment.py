@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class BatchChaosExperiment:
     """Orchestrates multiple chaos experiments with complete isolation."""
     
-    def __init__(self, batch_config: Dict[str, Any], output_base_dir: str = "DATA", agent_config: KubernetesAgentConfig = None):
+    def __init__(self, batch_config: Dict[str, Any], output_base_dir: str = "DATA", agent_config: KubernetesAgentConfig = None, resume_from: int = None):
         """
         Initialize batch experiment.
         
@@ -29,6 +29,7 @@ class BatchChaosExperiment:
             batch_config: Complete batch configuration (required)
             output_base_dir: Base directory for dataset logs
             agent_config: Agent configuration for all experiments (required)
+            resume_from: Experiment number to resume from (1-indexed, optional)
         """
         # Validate required configurations
         assert batch_config is not None, "batch_config is required - cannot run batch experiments without configuration"
@@ -38,6 +39,7 @@ class BatchChaosExperiment:
         self.batch_settings = batch_config.get("batch_settings", {})
         self.output_base_dir = output_base_dir
         self.agent_config = agent_config
+        self.resume_from = resume_from
         
         # Generate chaos configurations internally using ChaosBatchGenerator
         experiment_count_per_type = self.batch_settings.get("experiments_count_per_type", DEFAULT_CHAOS_COUNT_PER_TYPE)
@@ -212,7 +214,23 @@ class BatchChaosExperiment:
         print(f"🎯 STARTING BATCH EXPERIMENT: {self.batch_results['batch_id']}")
         print(f"{'='*70}")
         print(f"📊 Total experiments: {len(self.chaos_configs)}")
-        print(f"⏰ Estimated duration: ~{len(self.chaos_configs) * 10} minutes")
+        
+        # Handle resume logic
+        start_index = 0
+        if self.resume_from is not None:
+            if self.resume_from < 1 or self.resume_from > len(self.chaos_configs):
+                print(f"❌ ERROR: Invalid resume_from value {self.resume_from}. Must be between 1 and {len(self.chaos_configs)}")
+                self.batch_results["error"] = f"Invalid resume_from value: {self.resume_from}"
+                return self.batch_results
+            
+            start_index = self.resume_from - 1  # Convert from 1-indexed to 0-indexed
+            print(f"🔄 Resuming from experiment {self.resume_from}/{len(self.chaos_configs)}")
+            print(f"📝 Skipping experiments 1-{self.resume_from - 1}")
+            remaining_experiments = len(self.chaos_configs) - start_index
+            print(f"⏰ Estimated duration: ~{remaining_experiments * 10} minutes")
+        else:
+            print(f"⏰ Estimated duration: ~{len(self.chaos_configs) * 10} minutes")
+        
         print(f"💾 Output directory: {self.simple_logger.output_dir}")
         print(f"{'─'*70}")
         
@@ -224,6 +242,9 @@ class BatchChaosExperiment:
         
         try:
             for index, chaos_config in enumerate(self.chaos_configs):
+                # Skip experiments before resume point
+                if index < start_index:
+                    continue
                 # Create experiment config and ID
                 experiment_config = self._create_experiment_config(chaos_config)
                 experiment_id = self._create_experiment_id(index, chaos_config)
