@@ -17,6 +17,7 @@ from .traffic_generator import LocustTrafficGenerator
 # Import other project modules
 from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
 from ..anomalies.chaos_mesh_handler import ChaosMeshHandler
+from ..anomalies.traffic_spike_handler import TrafficSpikeHandler
 from kub_mitigation_agent.agent.agent import KubernetesAgent
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
 from kub_mitigation_agent.shared.prometheus_client import get_prometheus_tool
@@ -40,6 +41,7 @@ class ChaosAndMitigationExperiment:
         # Initialize components
         self.docker_handler = None
         self.chaos_mesh_handler = None
+        self.traffic_spike_handler = None
         self.agent = None
         self.traffic_generator = None
         self.chaos_experiment = None
@@ -54,6 +56,7 @@ class ChaosAndMitigationExperiment:
         self.docker_handler = DockerConstraintsHandler(self.config)
         self.chaos_mesh_handler = ChaosMeshHandler(self.config)        
         self.traffic_generator = LocustTrafficGenerator(self.config["traffic_config"])
+        self.traffic_spike_handler = TrafficSpikeHandler(self.config, self.traffic_generator)
         
         self.agent = KubernetesAgent(self.agent_config)
  
@@ -74,6 +77,12 @@ class ChaosAndMitigationExperiment:
             return False
         elif mode == "chaos_only":
             exp = self.chaos_mesh_handler.inject_chaos_mesh_only(config)
+            if exp:
+                self.chaos_experiment = exp
+                return True
+            return False
+        elif mode == "traffic_spike_only":
+            exp = self.traffic_spike_handler.inject_traffic_spike_only(config)
             if exp:
                 self.chaos_experiment = exp
                 return True
@@ -177,6 +186,11 @@ class ChaosAndMitigationExperiment:
                 if mode == "docker_only":
                     if emergency:
                         print("Docker-only experiment: No Chaos Mesh cleanup required")
+                elif mode == "traffic_spike_only":
+                    # No cleanup needed - traffic is already stopped, and each experiment
+                    # creates a fresh traffic generator from config with original RPS
+                    if emergency:
+                        print("Traffic spike experiment: No cleanup needed (traffic already stopped)")
                 else:
                     loop = asyncio.get_event_loop()
                     success = await loop.run_in_executor(
@@ -227,23 +241,32 @@ class ChaosAndMitigationExperiment:
         try:
             # Setup
             await self.setup()
-                        
-            # === BASELINE METRICS (no warmup) ===
-            print(f"\n▶ Phase 1: Baseline metrics ({self.config['baseline_duration']}s)")
-            # Ensure traffic is running before measuring baseline
-            await self.traffic_generator.start_traffic()
-            # Reset metrics at START of baseline measurement phase
-            self.traffic_generator.reset_phase_metrics()
-            await asyncio.sleep(self.config["baseline_duration"])
             
-            # Collect traffic generator baseline metrics
-            baseline_metrics = self.traffic_generator.get_phase_metrics(self.config["baseline_duration"])
-            results["phase_metrics"]["baseline"] = baseline_metrics
-            print(f"  ✅ Baseline: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
+            # === BASELINE METRICS ===
+            prerecorded_baseline = self.config.get("prerecorded_baseline")
+            
+            if prerecorded_baseline:
+                # Use prerecorded baseline from first experiment
+                print(f"\n▶ Phase 1: Baseline metrics (prerecorded)")
+                baseline_metrics = prerecorded_baseline
+                results["phase_metrics"]["baseline"] = baseline_metrics
+                print(f"  ♻️  Reused: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
+            else:
+                # Measure baseline normally
+                print(f"\n▶ Phase 1: Baseline metrics ({self.config['baseline_duration']}s)")
+                await self.traffic_generator.start_traffic()
+                self.traffic_generator.reset_phase_metrics()
+                await asyncio.sleep(self.config["baseline_duration"])
+                baseline_metrics = self.traffic_generator.get_phase_metrics(self.config["baseline_duration"])
+                results["phase_metrics"]["baseline"] = baseline_metrics
+                print(f"  ✅ Measured: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
             
             results["phases_completed"].append("baseline")
             
             # === CHAOS INJECTION ===
+            if prerecorded_baseline:
+                await self.traffic_generator.start_traffic()
+            
             print(f"\n▶ Chaos injection: ", end="")
             if await self.inject_chaos():
                 print("✅ Active")

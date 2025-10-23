@@ -41,6 +41,17 @@ def load_configs(batch_config_path: Path):
     batch_config = yaml.safe_load(batch_config_path.read_text(encoding="utf-8"))
     batch_config = batch_config.get("BATCH_CONFIG") or batch_config.get("batch_config") or {}
     
+    # Load chaos experiments from external file if specified
+    chaos_experiments_file = batch_config.get("batch_settings", {}).get("chaos_experiments_file")
+    if chaos_experiments_file:
+        chaos_exp_path = REPO_ROOT / chaos_experiments_file
+        if chaos_exp_path.exists():
+            chaos_spec = yaml.safe_load(chaos_exp_path.read_text(encoding="utf-8"))
+            batch_config["chaos_experiments"] = chaos_spec.get("chaos_experiments", {})
+            print(f"📋 Loaded chaos experiments spec from: {chaos_experiments_file}")
+        else:
+            raise FileNotFoundError(f"Chaos experiments file not found: {chaos_exp_path}")
+    
     agent_config_path = REPO_ROOT / "experiment_configs" / "agent.config.yaml"
     if agent_config_path.exists():
         agent_cfg = yaml.safe_load(agent_config_path.read_text(encoding="utf-8"))

@@ -7,9 +7,9 @@ BATCH_CONFIG:
   recovery_duration: 60
 
   batch_settings:
-    experiments_count_per_type: 5
     random_seed: 42
     delay_between_experiments: 0
+    chaos_experiments_file: "./experiment_configs/chaos_experiments_spec.yaml"
 
   node_resources:
     k3d-cec-emulator-agent-0: { cpus: "4", memory: "4g" }

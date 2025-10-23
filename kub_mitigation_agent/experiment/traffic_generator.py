@@ -217,6 +217,42 @@ class LocustTrafficGenerator:
             "expected_requests": expected_requests,
             "current_rps": 0
         }
+    
+    def adjust_traffic_rate(self, new_rps: int) -> bool:
+        """Dynamically adjust traffic rate during execution.
+        
+        Args:
+            new_rps: New target requests per second
+            
+        Returns:
+            True if adjustment succeeded, False otherwise
+        """
+        if not self.is_running or not self.runner:
+            logger.warning("Cannot adjust traffic rate: traffic generator not running")
+            return False
+        
+        # Calculate new user count and spawn rate
+        total_rps = new_rps * len(self.config["endpoints"])
+        new_users = min(max(total_rps // 2, 2), 30)  # Cap at 30 users for safety
+        spawn_rate = 2  # Fixed spawn rate: 2 users/second for deterministic behavior
+        
+        logger.info(f"Adjusting traffic rate from {self.config['requests_per_second']} RPS to {new_rps} RPS")
+        logger.info(f"  Users: {self.actual_users} -> {new_users}, spawn rate: {spawn_rate} users/s")
+        
+        # Update actual users tracking
+        self.actual_users = new_users
+        
+        # Update config for future reference
+        self.config["requests_per_second"] = new_rps
+        
+        # Restart runner with new user count
+        self.runner.start(user_count=new_users, spawn_rate=spawn_rate)
+        
+        return True
+    
+    def get_current_rate(self) -> int:
+        """Return current configured requests per second."""
+        return self.config.get("requests_per_second", 0)
 
 # Keep the old class name for backward compatibility
 TrafficGenerator = LocustTrafficGenerator 

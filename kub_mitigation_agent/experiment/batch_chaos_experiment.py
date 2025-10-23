@@ -12,7 +12,7 @@ from typing import Dict, Any
 from .chaos_mitigation_experiment import ChaosAndMitigationExperiment
 from .experiment_utils import deploy_fresh_app_sync, undeploy_app_sync, reset_scheduling_policies
 from .simple_experiment_logger import SimpleExperimentLogger
-from .chaos_batch_generator import ChaosBatchGenerator, DEFAULT_CHAOS_COUNT_PER_TYPE, DEFAULT_SEED
+from .chaos_batch_generator import ChaosBatchGenerator, DEFAULT_SEED
 from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
 from ..agent.config import KubernetesAgentConfig
 
@@ -41,13 +41,12 @@ class BatchChaosExperiment:
         self.agent_config = agent_config
         self.resume_from = resume_from
         
-        # Generate chaos configurations internally using ChaosBatchGenerator
-        experiment_count_per_type = self.batch_settings.get("experiments_count_per_type", DEFAULT_CHAOS_COUNT_PER_TYPE)
+        # Generate chaos configurations from explicit specification in config
         random_seed = self.batch_settings.get("random_seed", DEFAULT_SEED)
         
-        print(f"🎲 Generating chaos configurations (seed: {random_seed}, {experiment_count_per_type} per type)")
+        print(f"🎲 Generating chaos configurations from spec (seed: {random_seed})")
         generator = ChaosBatchGenerator(batch_config, seed=random_seed)
-        self.chaos_configs = generator.generate_comprehensive_batch(experiment_count_per_type)
+        self.chaos_configs = generator.generate_from_spec()
         
         # Extract namespace/application name from config
         namespace = self.batch_config.get("namespace", "unknown-app")
@@ -71,6 +70,9 @@ class BatchChaosExperiment:
         # Initialize handlers with base config
         self.docker_handler = DockerConstraintsHandler(self.batch_config)
         self.chaos_mesh_handler = None
+        
+        # Baseline metrics storage - first experiment measures, rest reuse
+        self.first_baseline_metrics = None
     
     def _create_experiment_config(self, chaos_config: Dict[str, Any]) -> Dict[str, Any]:
         """Create complete experiment config by adding chaos config to batch config."""
@@ -135,6 +137,12 @@ class BatchChaosExperiment:
             # Step 2: Run the chaos experiment
             print(f"\n▶ Step 2: Running chaos experiment")
             print(f"  ├─ Chaos injection type: {experiment_config['chaos_config']['mode']} - {experiment_config['chaos_config']['fault_type']}")
+            
+            # Inject prerecorded baseline if already measured
+            if self.first_baseline_metrics is not None:
+                experiment_config["prerecorded_baseline"] = self.first_baseline_metrics
+                print(f"  ├─ Using prerecorded baseline from first experiment")
+            
             experiment = ChaosAndMitigationExperiment(
                 experiment_config,
                 experiment_id=experiment_id,
@@ -142,6 +150,11 @@ class BatchChaosExperiment:
             )
             
             results = await experiment.run_full_experiment()
+            
+            # Capture baseline from first experiment that measures it
+            if self.first_baseline_metrics is None and results.get("phase_metrics", {}).get("baseline"):
+                self.first_baseline_metrics = results["phase_metrics"]["baseline"]
+                print(f"  └─ Baseline captured for batch reuse")
             
             # Update experiment result with data from experiment
             experiment_result["success"] = results.get("success", False)

@@ -28,8 +28,8 @@ class KubernetesAgentConfig(BaseModel):
     agent_type: Literal["graph", "react"] = Field(default="graph")
 
     # MCP
-    mcp_server_command: List[str] = Field(default_factory=lambda: ["node", "./mcp-server-kubernetes/dist/index.js"])
-    mcp_timeout_seconds: int = Field(default=int(os.getenv("MCP_TIMEOUT_SECONDS", "90")))
+    mcp_server_command: List[str] = Field(default_factory=lambda: ["node", "--no-deprecation", "./mcp-server-kubernetes/dist/index.js"])
+    mcp_timeout_seconds: int = Field(default=int(os.getenv("MCP_TIMEOUT_SECONDS", "180")))
 
     @classmethod
     def from_yaml_dict(cls, y: Dict[str, Any]) -> "KubernetesAgentConfig":
@@ -45,7 +45,7 @@ class KubernetesAgentConfig(BaseModel):
         elif isinstance(server_cmd_raw, list):
             server_cmd = server_cmd_raw
         else:
-            server_cmd = os.getenv("MCP_SERVER_COMMAND", "node ./mcp-server-kubernetes/dist/index.js").split(" ")
+            server_cmd = os.getenv("MCP_SERVER_COMMAND", "node --no-deprecation ./mcp-server-kubernetes/dist/index.js").split(" ")
 
         return cls(
             # LLM - use YAML values, fall back to defaults if not present
@@ -67,5 +67,5 @@ class KubernetesAgentConfig(BaseModel):
 
             # MCP
             mcp_server_command=server_cmd,
-            mcp_timeout_seconds=int(mcp.get("timeout_seconds", os.getenv("MCP_TIMEOUT_SECONDS", "90"))),
+            mcp_timeout_seconds=int(mcp.get("timeout_seconds", os.getenv("MCP_TIMEOUT_SECONDS", "180"))),
         )
