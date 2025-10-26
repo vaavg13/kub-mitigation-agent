@@ -1,0 +1,258 @@
+{
+  "uid": "kub-agent-obsv",
+  "title": "Kubernetes Agent Observability",
+  "tags": ["kubernetes", "agent", "kube-prometheus-stack"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 4,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "type": "row",
+      "title": "Agent Overview",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Pod Restarts (last 1h)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "targets": [
+        {
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"$pod\"}[1h]))",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1}
+    },
+    {
+      "type": "timeseries",
+      "title": "Pod CPU (cores)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "cores"}},
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", image!=\"\", pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 9, "x": 6, "y": 1}
+    },
+    {
+      "type": "timeseries",
+      "title": "Pod Memory (bytes)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "targets": [
+        {
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"$namespace\", image!=\"\", pod=~\"$pod\"})",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 9, "x": 15, "y": 1}
+    },
+    {
+      "type": "row",
+      "title": "Requests and Latency",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9}
+    },
+    {
+      "type": "timeseries",
+      "title": "App Requests/s (requires app HTTP metrics)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "targets": [
+        {
+          "expr": "sum by (pod) (rate(http_requests_total{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))\n  or sum by (pod) (rate(http_server_requests_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[5m]))",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 10}
+    },
+    {
+      "type": "timeseries",
+      "title": "App HTTP Latency P95 (requires app histogram)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, pod) (rate({__name__=~\"http_.*request.*_seconds_bucket|http_server_request_duration_seconds_bucket|request_duration_seconds_bucket\", namespace=\"$namespace\", pod=~\"$pod\"}[5m])))",
+          "legendFormat": "p95 {{pod}}"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 10}
+    },
+    {
+      "type": "timeseries",
+      "title": "NGINX Ingress Requests/s",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "targets": [
+        {
+          "expr": "sum(rate(nginx_ingress_controller_requests{namespace=\"$namespace\", ingress=~\"$ingress\"}[5m]))\nor sum(rate(nginx_ingress_controller_requests{exported_namespace=\"$namespace\", ingress=~\"$ingress\"}[5m]))",
+          "legendFormat": "req/s"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 17}
+    },
+    {
+      "type": "timeseries",
+      "title": "NGINX Ingress Avg Latency (s)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {
+          "expr": "(sum(rate(nginx_ingress_controller_request_duration_seconds_sum{namespace=\"$namespace\", ingress=~\"$ingress\"}[5m])) / sum(rate(nginx_ingress_controller_request_duration_seconds_count{namespace=\"$namespace\", ingress=~\"$ingress\"}[5m])))\nor (sum(rate(nginx_ingress_controller_request_duration_seconds_sum{exported_namespace=\"$namespace\", ingress=~\"$ingress\"}[5m])) / sum(rate(nginx_ingress_controller_request_duration_seconds_count{exported_namespace=\"$namespace\", ingress=~\"$ingress\"}[5m])))",
+          "legendFormat": "avg latency"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 17}
+    },
+    {
+      "type": "row",
+      "title": "Istio Telemetry",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23}
+    },
+    {
+      "type": "timeseries",
+      "title": "Istio Requests/s (ingress)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "targets": [
+        {
+          "expr": "sum(rate(istio_requests_total{reporter=\"source\"}[5m]))",
+          "legendFormat": "total"
+        },
+        {
+          "expr": "sum by (destination_service) (rate(istio_requests_total{reporter=\"source\"}[5m]))",
+          "legendFormat": "{{destination_service}}"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 24}
+    },
+    {
+      "type": "timeseries",
+      "title": "Istio HTTP Latency P95 (s, ingress)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{reporter=\"source\"}[5m]))) / 1000",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 24}
+    },
+    {
+      "type": "row",
+      "title": "Cluster Node Health",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 31}
+    },
+    {
+      "type": "timeseries",
+      "title": "Node CPU usage (%)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
+      "targets": [
+        {
+          "expr": "(1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 32}
+    },
+    {
+      "type": "timeseries",
+      "title": "Node Memory usage (%)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
+      "targets": [
+        {
+          "expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 32}
+    },
+    {
+      "type": "timeseries",
+      "title": "Node CPU total (cores)",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "fieldConfig": {"defaults": {"unit": "cores"}},
+      "targets": [
+        {
+          "expr": "sum by (node) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 32}
+    },
+    {
+      "type": "stat",
+      "title": "CrashLooping Containers",
+      "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+      "targets": [
+        {
+          "expr": "sum(kube_pod_container_status_waiting_reason{namespace=\"$namespace\", reason=\"CrashLoopBackOff\"})",
+          "legendFormat": "CrashLoopBackOff"
+        }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 39}
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "DS_PROMETHEUS",
+        "query": "prometheus",
+        "current": {"text": "Prometheus", "value": "Prometheus"}
+      },
+      {
+        "type": "query",
+        "name": "namespace",
+        "label": "Namespace",
+        "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+        "refresh": 2,
+        "query": "label_values(kube_pod_info, namespace)",
+        "current": {"text": "default", "value": "default", "selected": true},
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "type": "query",
+        "name": "pod",
+        "label": "Pod",
+        "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+        "refresh": 2,
+        "query": "label_values(kube_pod_info{namespace=\"$namespace\"}, pod)",
+        "current": {"text": "All", "value": ".*"},
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "type": "query",
+        "name": "ingress",
+        "label": "Ingress",
+        "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+        "refresh": 2,
+        "query": "label_values(nginx_ingress_controller_requests{namespace=\"$namespace\"}, ingress)",
+        "current": {"text": "All", "value": ".*"},
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "type": "query",
+        "name": "entrypoint",
+        "label": "Traefik Entrypoint",
+        "datasource": {"type": "prometheus", "uid": "$DS_PROMETHEUS"},
+        "refresh": 2,
+        "query": "label_values(traefik_entrypoint_requests_total, entrypoint)",
+        "current": {"text": "All", "value": ".*"},
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  }
+}

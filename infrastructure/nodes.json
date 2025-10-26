@@ -1,0 +1,45 @@
+[
+  {
+    "name": "cloud-node-0",
+    "zone": "cloud",
+    "cpu_capacity": "4",
+    "memory_capacity_gb": "4"
+  },
+  {
+    "name": "cloud-node-1",
+    "zone": "cloud",
+    "cpu_capacity": "4",
+    "memory_capacity_gb": "4"
+  },
+  {
+    "name": "edge-node-0-site-1",
+    "zone": "edge-site-1",
+    "cpu_capacity": "2",
+    "memory_capacity_gb": "2",
+    "network_restrictions": {
+      "rate": "1mbps",
+      "delay": "100ms",
+      "loss": "50%",
+      "duplicate": "50%",
+      "corrupt": "10%"
+    }
+  },
+  {
+    "name": "edge-node-1-site-1",
+    "zone": "edge-site-1",
+    "cpu_capacity": "2",
+    "memory_capacity_gb": "2"
+  },
+  {
+    "name": "edge-node-0-site-2",
+    "zone": "edge-site-2",
+    "cpu_capacity": "2",
+    "memory_capacity_gb": "2"
+  },
+  {
+    "name": "edge-node-1-site-2",
+    "zone": "edge-site-2",
+    "cpu_capacity": "2",
+    "memory_capacity_gb": "2"
+  }
+] 
