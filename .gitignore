@@ -19,7 +19,8 @@ env/
 # Generated logs and data
 DATASET_LOGS*/
 DATASET_LOGS_OLD*/
-APPS/
+# APPS/
+yamls/
 docs/
 
 # IDE and editor files

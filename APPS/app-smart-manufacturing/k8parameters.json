@@ -1,0 +1,15 @@
+{
+  "prefix_yaml_file": "mu_bench",
+  "namespace": "app-smart-manufacturing",
+  "image": "msvcbench/microservice:latest",
+  "cluster_domain": "cluster",
+  "path": "/api/v1",
+  "dns_resolver": "kube-dns.kube-system.svc.cluster.local",
+  "scheduler_name": "default-scheduler",
+  "sleep": 0,
+  "nginx_gw": true,
+  "nginx_svc_type": "NodePort",
+  "no_apply": false,
+  "nginx_node_port": 31119,
+  "istio_injection": true
+}

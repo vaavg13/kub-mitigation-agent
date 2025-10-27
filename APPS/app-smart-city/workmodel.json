@@ -1,0 +1,556 @@
+{
+  "traffic-sensor-ingest": {
+    "external_services": [
+      { "seq_len": 5, "services": ["edge-traffic-analytics"], "propabilities": {"edge-traffic-analytics": 0.6} },
+      { "seq_len": 2, "services": ["cloud-data-ingestion"], "propabilities": {"cloud-data-ingestion": 0.2} },
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [1, 3], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 1000, "memory_io": 50 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 25,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "traffic-sensor-ingest.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "traffic-sensor-ingest-edge-site-1",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-1",
+        "cpu-requests": "25m",
+        "memory-requests": "128Mi",
+        "_cpu-limits": "35m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      },
+      {
+        "name": "traffic-sensor-ingest-edge-site-2",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-2",
+        "cpu-requests": "25m",
+        "memory-requests": "128Mi",
+        "_cpu-limits": "35m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "edge-traffic-analytics": {
+    "external_services": [
+      { "seq_len": 3, "services": ["signal-control-logic"], "propabilities": {"signal-control-logic": 0.3} },
+      { "seq_len": 3, "services": ["incident-detection-edge"], "propabilities": {"incident-detection-edge": 0.2} },
+      { "seq_len": 2, "services": ["vehicle-to-infrastructure"], "propabilities": {"vehicle-to-infrastructure": 0.2} },
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [4, 6], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 2000, "memory_io": 100 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 35,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "edge-traffic-analytics.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "edge-traffic-analytics-edge-site-1",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-1",
+        "cpu-requests": "40m",
+        "memory-requests": "160Mi",
+        "_cpu-limits": "50m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      },
+      {
+        "name": "edge-traffic-analytics-edge-site-2",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-2",
+        "cpu-requests": "40m",
+        "memory-requests": "160Mi",
+        "_cpu-limits": "50m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "signal-control-logic": {
+    "external_services": [
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [3, 5], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 1500, "memory_io": 75 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 30,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "signal-control-logic.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "signal-control-logic-edge-site-1",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-1",
+        "cpu-requests": "35m",
+        "memory-requests": "160Mi",
+        "_cpu-limits": "45m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      },
+      {
+        "name": "signal-control-logic-edge-site-2",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-2",
+        "cpu-requests": "35m",
+        "memory-requests": "160Mi",
+        "_cpu-limits": "45m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "incident-detection-edge": {
+    "external_services": [
+      { "seq_len": 2, "services": ["emergency-mgmt-dispatch"], "propabilities": {"emergency-mgmt-dispatch": 0.4} },
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [6, 10], "thread_pool_size": 2, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 3000, "memory_io": 150 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 45,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "incident-detection-edge.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "incident-detection-edge-edge-site-1",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-1",
+        "cpu-requests": "60m",
+        "memory-requests": "192Mi",
+        "_cpu-limits": "70m",
+        "_memory-limits": "320Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      },
+      {
+        "name": "incident-detection-edge-edge-site-2",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-2",
+        "cpu-requests": "60m",
+        "memory-requests": "192Mi",
+        "_cpu-limits": "70m",
+        "_memory-limits": "320Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "vehicle-to-infrastructure": {
+    "external_services": [
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [2, 4], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 1200, "memory_io": 60 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 20,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "vehicle-to-infrastructure.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "vehicle-to-infrastructure-edge-site-1",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-1",
+        "cpu-requests": "30m",
+        "memory-requests": "128Mi",
+        "_cpu-limits": "40m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      },
+      {
+        "name": "vehicle-to-infrastructure-edge-site-2",
+        "node_affinity": "topology.kubernetes.io/zone=edge-site-2",
+        "cpu-requests": "30m",
+        "memory-requests": "128Mi",
+        "_cpu-limits": "40m",
+        "_memory-limits": "256Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "cloud-data-ingestion": {
+    "external_services": [
+      { "seq_len": 3, "services": ["central-traffic-optimization"], "propabilities": {"central-traffic-optimization": 0.5} },
+      { "seq_len": 2, "services": ["historical-traffic-data-store"], "propabilities": {"historical-traffic-data-store": 0.3} },
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [5, 8], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 4000, "memory_io": 200 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 60,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "cloud-data-ingestion.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "cloud-data-ingestion-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "50m",
+        "memory-requests": "256Mi",
+        "_cpu-limits": "60m",
+        "_memory-limits": "512Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "central-traffic-optimization": {
+    "external_services": [
+      { "seq_len": 2, "services": ["route-guidance-system"], "propabilities": {"route-guidance-system": 0.4} },
+      { "seq_len": 2, "services": ["public-facing-apps-backend"], "propabilities": {"public-facing-apps-backend": 0.3} },
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [8, 12], "thread_pool_size": 2, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 5000, "memory_io": 250 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 80,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "central-traffic-optimization.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "central-traffic-optimization-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "80m",
+        "memory-requests": "384Mi",
+        "_cpu-limits": "100m",
+        "_memory-limits": "768Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "route-guidance-system": {
+    "external_services": [
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [6, 8], "thread_pool_size": 2, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 3500, "memory_io": 175 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 55,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "route-guidance-system.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "route-guidance-system-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "60m",
+        "memory-requests": "256Mi",
+        "_cpu-limits": "75m",
+        "_memory-limits": "512Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "emergency-mgmt-dispatch": {
+    "external_services": [
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [4, 6], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 2500, "memory_io": 125 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 40,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "emergency-mgmt-dispatch.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "emergency-mgmt-dispatch-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "45m",
+        "memory-requests": "192Mi",
+        "_cpu-limits": "55m",
+        "_memory-limits": "384Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "public-facing-apps-backend": {
+    "external_services": [
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [5, 7], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 3000, "memory_io": 150 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 50,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "public-facing-apps-backend.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "public-facing-apps-backend-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "55m",
+        "memory-requests": "224Mi",
+        "_cpu-limits": "65m",
+        "_memory-limits": "448Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "historical-traffic-data-store": {
+    "external_services": [
+      { "seq_len": 2, "services": ["reporting-planning-tools"], "propabilities": {"reporting-planning-tools": 0.4} },
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [6, 8], "thread_pool_size": 2, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 4500, "memory_io": 225 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 75,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "historical-traffic-data-store.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "historical-traffic-data-store-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "70m",
+        "memory-requests": "320Mi",
+        "_cpu-limits": "85m",
+        "_memory-limits": "640Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  },
+  "reporting-planning-tools": {
+    "external_services": [
+      { "seq_len": 1, "services": [] }
+    ],
+    "internal_service": {
+      "loader": {
+        "cpu_stress": { "run": true, "range_complexity": [4, 6], "thread_pool_size": 1, "trials": 1 },
+        "memory_stress": { "run": true, "memory_size": 2500, "memory_io": 125 },
+        "disk_stress": { "run": false, "tmp_file_name": "", "disk_write_block_count": 0, "disk_write_block_size": 0 },
+        "sleep_stress": { "run": false, "sleep_time": 0 },
+        "mean_response_size": 60,
+        "function_id": "f1"
+      }
+    },
+    "request_method": "rest",
+    "workers": 4,
+    "threads": 16,
+    "url": "reporting-planning-tools.default.svc.cluster.local",
+    "path": "/api/v1",
+    "image": "msvcbench/microservice_v6-screen:1.0",
+    "namespace": "default",
+    "deployments": [
+      {
+        "name": "reporting-planning-tools-cloud",
+        "node_affinity": "topology.kubernetes.io/zone=cloud",
+        "cpu-requests": "45m",
+        "memory-requests": "192Mi",
+        "_cpu-limits": "55m",
+        "_memory-limits": "384Mi",
+        "autoscaling": {
+          "enabled": true,
+          "min": 2,
+          "max": 2,
+          "metric": "cpu",
+          "target": 60
+        }
+      }
+    ]
+  }
+} 
