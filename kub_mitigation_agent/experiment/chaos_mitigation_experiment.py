@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional, List
 from .traffic_generator import LocustTrafficGenerator
 
 # Import other project modules
-from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
+from ..anomalies.node_stress_handler import NodeStressHandler
 from ..anomalies.chaos_mesh_handler import ChaosMeshHandler
 from ..anomalies.traffic_spike_handler import TrafficSpikeHandler
 from kub_mitigation_agent.agent.agent import KubernetesAgent
@@ -39,7 +39,7 @@ class ChaosAndMitigationExperiment:
         self.agent_config = agent_config or KubernetesAgentConfig()
         
         # Initialize components
-        self.docker_handler = None
+        self.node_stress_handler = None
         self.chaos_mesh_handler = None
         self.traffic_spike_handler = None
         self.agent = None
@@ -53,12 +53,13 @@ class ChaosAndMitigationExperiment:
         
     async def setup(self):
         # Initialize Anomalie Handlers and Traffic Generator
-        self.docker_handler = DockerConstraintsHandler(self.config)
+        self.node_stress_handler = NodeStressHandler(self.config)
         self.chaos_mesh_handler = ChaosMeshHandler(self.config)        
         self.traffic_generator = LocustTrafficGenerator(self.config["traffic_config"])
         self.traffic_spike_handler = TrafficSpikeHandler(self.config, self.traffic_generator)
         
-        self.agent = KubernetesAgent(self.agent_config)
+        if self.agent_config.enabled:
+            self.agent = KubernetesAgent(self.agent_config)
  
     async def inject_chaos(self) -> bool:
         """Inject chaos into the target application based on configuration mode."""
@@ -69,8 +70,8 @@ class ChaosAndMitigationExperiment:
             # No chaos experiment to track
             self.chaos_experiment = None
             return True
-        elif mode == "docker_only":
-            exp = self.docker_handler.inject_docker_constraints_only(config)
+        elif mode == "node_stress_only":
+            exp = self.node_stress_handler.inject_node_stress_only(config)
             if exp:
                 self.chaos_experiment = exp
                 return True
@@ -183,9 +184,9 @@ class ChaosAndMitigationExperiment:
                     print("Cleaning up chaos experiment...")
                 
                 mode = self.config.get("chaos_config", {}).get("mode")
-                if mode == "docker_only":
+                if mode == "node_stress_only":
                     if emergency:
-                        print("Docker-only experiment: No Chaos Mesh cleanup required")
+                        print("Node-stress-only experiment: No Chaos Mesh cleanup required")
                 elif mode == "traffic_spike_only":
                     # No cleanup needed - traffic is already stopped, and each experiment
                     # creates a fresh traffic generator from config with original RPS
@@ -206,8 +207,8 @@ class ChaosAndMitigationExperiment:
             except Exception as e:
                 print(f"Error cleaning chaos experiment: {e}")
         
-        # 3. Clean up agent
-        if self.agent and self.config.get("test_settings", {}).get("cleanup_after_test", True):
+        # 3. Clean up agent (if enabled)
+        if self.agent_config.enabled and self.agent and self.config.get("test_settings", {}).get("cleanup_after_test", True):
             try:
                 if emergency:
                     print("Cleaning up agent...")
@@ -220,7 +221,7 @@ class ChaosAndMitigationExperiment:
         if emergency:
             print("=" * 40)
             print("Emergency cleanup completed - safe to exit")
-            print("Next run will automatically set all nodes to proper resource limits")
+            print("Next run will automatically clear active node stress before starting")
 
 
     async def run_full_experiment(self) -> Dict[str, Any]:
@@ -242,19 +243,30 @@ class ChaosAndMitigationExperiment:
             # Setup
             await self.setup()
             
+            # === WARMUP PHASE (for all experiments) ===
+            warmup_duration = self.config.get("warmup_duration", 0)
+            if warmup_duration > 0:
+                print(f"\n▶ Phase 1: Warmup ({warmup_duration}s)")
+                await self.traffic_generator.start_traffic()
+                await asyncio.sleep(warmup_duration)
+                print(f"  ✅ Warmup complete (pods, Istio, connection pools stabilized)")
+                results["phases_completed"].append("warmup")
+            
             # === BASELINE METRICS ===
             prerecorded_baseline = self.config.get("prerecorded_baseline")
             
             if prerecorded_baseline:
                 # Use prerecorded baseline from first experiment
-                print(f"\n▶ Phase 1: Baseline metrics (prerecorded)")
+                print(f"\n▶ Phase 2: Baseline metrics (prerecorded)")
                 baseline_metrics = prerecorded_baseline
                 results["phase_metrics"]["baseline"] = baseline_metrics
                 print(f"  ♻️  Reused: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
             else:
                 # Measure baseline normally
-                print(f"\n▶ Phase 1: Baseline metrics ({self.config['baseline_duration']}s)")
-                await self.traffic_generator.start_traffic()
+                phase_label = "Phase 2" if warmup_duration > 0 else "Phase 1"
+                print(f"\n▶ {phase_label}: Baseline metrics ({self.config['baseline_duration']}s)")
+                if warmup_duration == 0:
+                    await self.traffic_generator.start_traffic()
                 self.traffic_generator.reset_phase_metrics()
                 await asyncio.sleep(self.config["baseline_duration"])
                 baseline_metrics = self.traffic_generator.get_phase_metrics(self.config["baseline_duration"])
@@ -262,10 +274,6 @@ class ChaosAndMitigationExperiment:
                 print(f"  ✅ Measured: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
             
             results["phases_completed"].append("baseline")
-            
-            # === CHAOS INJECTION ===
-            if prerecorded_baseline:
-                await self.traffic_generator.start_traffic()
             
             print(f"\n▶ Chaos injection: ", end="")
             if await self.inject_chaos():
@@ -275,8 +283,9 @@ class ChaosAndMitigationExperiment:
                 print("❌ Failed")
                 raise Exception("Failed to inject chaos")
             
-            # === PHASE 3: CHAOS WARMUP (record metrics during active chaos) ===
-            print(f"\n▶ Phase 3: Chaos metrics ({self.config['chaos_warmup_duration']}s)")
+            # === CHAOS WARMUP (record metrics during active chaos) ===
+            phase_num = 3 if warmup_duration > 0 else 2
+            print(f"\n▶ Phase {phase_num}: Chaos metrics ({self.config['chaos_warmup_duration']}s)")
             # Reset metrics at START of chaos measurement phase
             self.traffic_generator.reset_phase_metrics()
             await asyncio.sleep(self.config["chaos_warmup_duration"])
@@ -288,40 +297,45 @@ class ChaosAndMitigationExperiment:
             results["phases_completed"].append("chaos_warmup")
             
             # === AGENT EXECUTION (during active chaos) ===
-            print(f"\n▶ Agent execution (chaos active)")
-            agent_execution_start_time = time.time()
-            agent_actions, operational_summary, agent_success = await self.deploy_mitigation_agent(
-                baseline_metrics, 
-                chaos_metrics
-            )
-            results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
-            results["agent_actions"] = agent_actions
-            results["agent_success"] = agent_success
-            results["operational_summary"] = operational_summary
-            results["problem_location"] = operational_summary.get("problem_location", []) if operational_summary else []
-            results["phases_completed"].append("agent_execution")
-            
-            # Print operational summary
-            if operational_summary:
-                print(f"\n📋 Operational Summary:")
-                print(f"  • Objective: {operational_summary.get('objective', 'N/A')}")
-                print(f"  • Status: {operational_summary.get('status', 'N/A')}")
-                print(f"  • Success: {'✅' if operational_summary.get('success') else '❌'}")
-                if operational_summary.get('problem_location'):
-                    print(f"  • Problem Location:")
-                    for loc in operational_summary['problem_location']:
-                        print(f"    - {loc.get('type', 'unknown')}: {loc.get('name', 'N/A')}")
-                if operational_summary.get('actions_completed'):
-                    print(f"  • Actions: {', '.join(operational_summary['actions_completed'])}")
-                if operational_summary.get('results_achieved'):
-                    print(f"  • Results:")
-                    for result in operational_summary['results_achieved']:
-                        print(f"    - {result}")
+            if self.agent_config.enabled:
+                print(f"\n▶ Agent execution (chaos active)")
+                agent_execution_start_time = time.time()
+                agent_actions, operational_summary, agent_success = await self.deploy_mitigation_agent(
+                    baseline_metrics, 
+                    chaos_metrics
+                )
+                results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
+                results["agent_actions"] = agent_actions
+                results["agent_success"] = agent_success
+                results["operational_summary"] = operational_summary
+                results["problem_location"] = operational_summary.get("problem_location", []) if operational_summary else []
+                results["phases_completed"].append("agent_execution")
+                
+                # Print operational summary
+                if operational_summary:
+                    print(f"\n📋 Operational Summary:")
+                    print(f"  • Objective: {operational_summary.get('objective', 'N/A')}")
+                    print(f"  • Status: {operational_summary.get('status', 'N/A')}")
+                    print(f"  • Success: {'✅' if operational_summary.get('success') else '❌'}")
+                    if operational_summary.get('problem_location'):
+                        print(f"  • Problem Location:")
+                        for loc in operational_summary['problem_location']:
+                            print(f"    - {loc.get('type', 'unknown')}: {loc.get('name', 'N/A')}")
+                    if operational_summary.get('actions_completed'):
+                        print(f"  • Actions: {', '.join(operational_summary['actions_completed'])}")
+                    if operational_summary.get('results_achieved'):
+                        print(f"  • Results:")
+                        for result in operational_summary['results_achieved']:
+                            print(f"    - {result}")
+                else:
+                    print(f"\n⚠️  No operational summary generated")
             else:
-                print(f"\n⚠️  No operational summary generated")
+                print(f"\n▶ Agent execution: DISABLED (baseline-chaos-recovery mode)")
+                results["phases_completed"].append("agent_execution_skipped")
             
-            # === PHASE 4: RECOVERY METRICS ===
-            print(f"\n▶ Phase 4: Recovery metrics ({self.config['recovery_duration']}s)")
+            # === RECOVERY METRICS ===
+            phase_num = 4 if warmup_duration > 0 else 3
+            print(f"\n▶ Phase {phase_num}: Recovery metrics ({self.config['recovery_duration']}s)")
             # Reset metrics at START of recovery measurement phase (after agent execution)
             self.traffic_generator.reset_phase_metrics()
             await asyncio.sleep(self.config["recovery_duration"])

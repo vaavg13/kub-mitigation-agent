@@ -13,7 +13,7 @@ from .chaos_mitigation_experiment import ChaosAndMitigationExperiment
 from .experiment_utils import deploy_fresh_app_sync, undeploy_app_sync, reset_scheduling_policies
 from .simple_experiment_logger import SimpleExperimentLogger
 from .chaos_batch_generator import ChaosBatchGenerator, DEFAULT_SEED
-from ..anomalies.docker_constraints_handler import DockerConstraintsHandler
+from ..anomalies.node_stress_handler import NodeStressHandler
 from ..agent.config import KubernetesAgentConfig
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class BatchChaosExperiment:
         print(f"💾 Logs will be saved to: {self.simple_logger.output_dir}")
         
         # Initialize handlers with base config
-        self.docker_handler = DockerConstraintsHandler(self.batch_config)
+        self.node_stress_handler = NodeStressHandler(self.batch_config)
         self.chaos_mesh_handler = None
         
         # Baseline metrics storage - first experiment measures, rest reuse
@@ -247,11 +247,16 @@ class BatchChaosExperiment:
         print(f"💾 Output directory: {self.simple_logger.output_dir}")
         print(f"{'─'*70}")
         
-        # Initial policy reset before starting batch
-        print(f"\n▶ Initial setup: ", end="")
-        initial_reset_success = reset_scheduling_policies(self.docker_handler)
+        # Initial cleanup and policy reset before starting batch
+        print(f"\n▶ Initial setup:")
+        print(f"  └─ Cleaning up orphaned processes...", end=" ")
+        NodeStressHandler.cleanup_orphaned_stress_processes()
+        print(f"  └─ Resetting scheduling policies...", end=" ")
+        initial_reset_success = reset_scheduling_policies(self.node_stress_handler)
         if not initial_reset_success:
             print(f"  ⚠️  Some issues during initial setup, continuing...")
+        else:
+            print("✅")
         
         try:
             for index, chaos_config in enumerate(self.chaos_configs):
@@ -274,7 +279,7 @@ class BatchChaosExperiment:
                 
                 # Reset scheduling policies after each experiment (cleanup step)
                 print(f"\n▶ Post-experiment cleanup: ", end="")
-                reset_success = reset_scheduling_policies(self.docker_handler)
+                reset_success = reset_scheduling_policies(self.node_stress_handler)
                 if not reset_success:
                     print(f"  ⚠️  Some issues during reset, continuing...")
                 

@@ -12,13 +12,20 @@ logger = logging.getLogger(__name__)
 
 class SimpleLoadUser(HttpUser):
     """Simple Locust user for testing specific endpoints."""
-    wait_time = between(1, 3)  # Realistic wait between requests (1-3 seconds)
     connection_timeout = 10.0
     network_timeout = 10.0
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.endpoints = getattr(self.environment, 'target_endpoints', ['/'])
+    
+    def wait_time(self):
+        """Dynamically get wait time from environment config."""
+        wait_min = getattr(self.environment, 'wait_time_min', 1)
+        wait_max = getattr(self.environment, 'wait_time_max', 3)
+        # Return a random value between min and max
+        import random
+        return random.uniform(wait_min, wait_max)
     
     @task
     def test_endpoint_1(self):
@@ -80,13 +87,14 @@ class LocustTrafficGenerator:
         if not self.actual_users or phase_duration_seconds <= 0:
             return 0
         
-        # Realistic calculation:
-        # - Each user has wait_time between(1, 3) → average 2s wait between requests
-        # - Each user cycles through 2 tasks (endpoints) equally
-        # - So each user makes ~1 request every 2s across both endpoints = 0.5 req/s per user
-        # - Total rate = users × 0.5 req/s
-        realistic_rps_per_user = 0.5  # Conservative estimate based on wait times and task distribution
-        estimated_total_rps = self.actual_users * realistic_rps_per_user
+        # Calculate based on configured wait times
+        wait_min = self.config.get("wait_time_min", 1)
+        wait_max = self.config.get("wait_time_max", 3)
+        avg_wait_time = (wait_min + wait_max) / 2.0
+        
+        # Each user makes 1 request per avg_wait_time seconds
+        rps_per_user = 1.0 / avg_wait_time
+        estimated_total_rps = self.actual_users * rps_per_user
         estimated_requests = int(estimated_total_rps * phase_duration_seconds)
         
         return estimated_requests
@@ -98,18 +106,26 @@ class LocustTrafficGenerator:
             
         self.is_running = True
         
-        # Calculate users and spawn rate - conservative for service stability
-        total_rps = self.config["requests_per_second"] * len(self.config["endpoints"])
-        # Use fewer users with longer wait times to achieve target RPS
-        users = min(max(total_rps // 2, 2), 10)  # Much fewer users, minimum 2, max 10
-        spawn_rate = min(users, 2)  # Slow spawn rate to avoid overwhelming services
-        self.actual_users = users  # Store for realistic calculations
+        # Get user count and spawn rate from config
+        users = self.config.get("num_users", 10)
+        spawn_rate = self.config.get("spawn_rate", 2)
+        wait_min = self.config.get("wait_time_min", 1)
+        wait_max = self.config.get("wait_time_max", 3)
+        self.actual_users = users
         
         # Extract host and endpoint paths
         host = self._get_host_from_endpoints()
         endpoint_paths = self._extract_endpoints_paths()
         
-        print(f"🚀 Starting Locust traffic: {users} users, {spawn_rate} spawn rate")
+        # Calculate approximate RPS for display
+        avg_wait = (wait_min + wait_max) / 2.0
+        approx_rps = users / avg_wait
+        
+        print(f"🚀 Starting Locust traffic:")
+        print(f"   Users: {users}")
+        print(f"   Spawn rate: {spawn_rate} users/second")
+        print(f"   Wait time: {wait_min}-{wait_max} seconds between requests")
+        print(f"   Approximate RPS: {approx_rps:.1f}")
         print(f"   Host: {host}")
         print(f"   Endpoints: {endpoint_paths}")
         
@@ -117,6 +133,8 @@ class LocustTrafficGenerator:
         self.environment = Environment(user_classes=[SimpleLoadUser])
         self.environment.target_endpoints = endpoint_paths
         self.environment.host = host
+        self.environment.wait_time_min = wait_min
+        self.environment.wait_time_max = wait_max
         
         # Create runner
         self.runner = self.environment.create_local_runner()
@@ -218,11 +236,12 @@ class LocustTrafficGenerator:
             "current_rps": 0
         }
     
-    def adjust_traffic_rate(self, new_rps: int) -> bool:
-        """Dynamically adjust traffic rate during execution.
+    def adjust_traffic_rate(self, new_num_users: int, new_spawn_rate: int = None) -> bool:
+        """Dynamically adjust traffic rate during execution by changing number of users.
         
         Args:
-            new_rps: New target requests per second
+            new_num_users: New number of users to spawn
+            new_spawn_rate: Optional new spawn rate (defaults to config spawn_rate)
             
         Returns:
             True if adjustment succeeded, False otherwise
@@ -231,28 +250,43 @@ class LocustTrafficGenerator:
             logger.warning("Cannot adjust traffic rate: traffic generator not running")
             return False
         
-        # Calculate new user count and spawn rate
-        total_rps = new_rps * len(self.config["endpoints"])
-        new_users = min(max(total_rps // 2, 2), 30)  # Cap at 30 users for safety
-        spawn_rate = 2  # Fixed spawn rate: 2 users/second for deterministic behavior
+        if new_spawn_rate is None:
+            new_spawn_rate = self.config.get("spawn_rate", 2)
         
-        logger.info(f"Adjusting traffic rate from {self.config['requests_per_second']} RPS to {new_rps} RPS")
-        logger.info(f"  Users: {self.actual_users} -> {new_users}, spawn rate: {spawn_rate} users/s")
+        # Calculate approximate RPS for logging
+        wait_min = self.config.get("wait_time_min", 1)
+        wait_max = self.config.get("wait_time_max", 3)
+        avg_wait = (wait_min + wait_max) / 2.0
+        old_approx_rps = self.actual_users / avg_wait
+        new_approx_rps = new_num_users / avg_wait
+        
+        logger.info(f"Adjusting traffic rate:")
+        logger.info(f"  Users: {self.actual_users} -> {new_num_users}")
+        logger.info(f"  Approximate RPS: {old_approx_rps:.1f} -> {new_approx_rps:.1f}")
+        logger.info(f"  Spawn rate: {new_spawn_rate} users/s")
         
         # Update actual users tracking
-        self.actual_users = new_users
+        self.actual_users = new_num_users
         
         # Update config for future reference
-        self.config["requests_per_second"] = new_rps
+        self.config["num_users"] = new_num_users
         
         # Restart runner with new user count
-        self.runner.start(user_count=new_users, spawn_rate=spawn_rate)
+        self.runner.start(user_count=new_num_users, spawn_rate=new_spawn_rate)
         
         return True
     
-    def get_current_rate(self) -> int:
-        """Return current configured requests per second."""
-        return self.config.get("requests_per_second", 0)
+    def get_current_users(self) -> int:
+        """Return current configured number of users."""
+        return self.config.get("num_users", 0)
+    
+    def get_current_approx_rps(self) -> float:
+        """Return approximate current RPS based on users and wait time."""
+        users = self.config.get("num_users", 0)
+        wait_min = self.config.get("wait_time_min", 1)
+        wait_max = self.config.get("wait_time_max", 3)
+        avg_wait = (wait_min + wait_max) / 2.0
+        return users / avg_wait if avg_wait > 0 else 0
 
 # Keep the old class name for backward compatibility
 TrafficGenerator = LocustTrafficGenerator 

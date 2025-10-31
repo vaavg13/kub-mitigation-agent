@@ -10,6 +10,40 @@ def format_timestamp(unix_timestamp: float) -> Dict[str, Any]:
         "human_readable": dt.strftime("%Y-%m-%d %H:%M:%S UTC")
     }
 
+# Hardcoded node-to-cpuset mapping for k3d cluster
+# Maps k3d agent index to node name and assigned CPU cores
+NODE_CPUSET_MAP = {
+    0: {'name': 'cloud-node-0', 'k8s_name': 'k3d-cec-emulator-agent-0', 'cpuset': '16,40,17,41', 'cpu_regex': '16|40|17|41'},
+    1: {'name': 'cloud-node-1', 'k8s_name': 'k3d-cec-emulator-agent-1', 'cpuset': '18,42,19,43', 'cpu_regex': '18|42|19|43'},
+    2: {'name': 'edge-node-0-site-1', 'k8s_name': 'k3d-cec-emulator-agent-2', 'cpuset': '20,44', 'cpu_regex': '20|44'},
+    3: {'name': 'edge-node-1-site-1', 'k8s_name': 'k3d-cec-emulator-agent-3', 'cpuset': '21,45', 'cpu_regex': '21|45'},
+    4: {'name': 'edge-node-0-site-2', 'k8s_name': 'k3d-cec-emulator-agent-4', 'cpuset': '22,46', 'cpu_regex': '22|46'},
+    5: {'name': 'edge-node-1-site-2', 'k8s_name': 'k3d-cec-emulator-agent-5', 'cpuset': '23,47', 'cpu_regex': '23|47'},
+}
+
+def _get_node_ip_mapping():
+    """Get mapping of node IPs to friendly node names from Kubernetes."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['kubectl', 'get', 'nodes', '-o', 'jsonpath={range .items[*]}{.metadata.name}{"\\t"}{.status.addresses[?(@.type=="InternalIP")].address}{"\\n"}{end}'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            ip_map = {}
+            for line in result.stdout.strip().split('\n'):
+                if '\t' in line:
+                    k8s_name, ip = line.strip().split('\t')
+                    # Find corresponding friendly name
+                    for node_info in NODE_CPUSET_MAP.values():
+                        if node_info['k8s_name'] == k8s_name:
+                            ip_map[ip] = node_info['name']
+                            break
+            return ip_map
+    except Exception:
+        pass
+    return {}
+
 class PrometheusMetricsTool:
     """
     Tool for getting current Prometheus metrics.
@@ -132,6 +166,62 @@ class PrometheusMetricsTool:
             "metric_type": "node_memory",
             "unit": "MiB",
             "query_info": {"duration": duration, "step": step},
+            "data": results
+        }
+    
+    def get_node_core_cpu_timeseries(self, duration: str = "10m", step: str = "1m", rate_window: str = "1m") -> Dict[str, Any]:
+        """Get per-node CPU usage based on assigned CPU cores (represents physical node CPU)."""
+        # Ensure rate_window is at least 1m for range queries to work properly
+        try:
+            rate_seconds = self._parse_duration_to_seconds(rate_window)
+            if rate_seconds < 60:
+                rate_window = "1m"
+        except Exception:
+            rate_window = "1m"
+        
+        results = []
+        ip_map = _get_node_ip_mapping()
+        friendly_to_ip = {friendly: ip for ip, friendly in ip_map.items()}
+        
+        # Query each node's CPU cores separately
+        for agent_idx, node_info in NODE_CPUSET_MAP.items():
+            cpu_regex = node_info['cpu_regex']
+            node_name = node_info['name']
+            node_ip = friendly_to_ip.get(node_name)
+            if not node_ip:
+                # Fallback to k8s node name (may still be useful for consumers)
+                node_ip = node_info.get('k8s_name', node_name)
+            
+            # Query: 1 - avg(rate(node_cpu_seconds_total{mode="idle",cpu=~"16|17|40|41"}[1m]))
+            query = f'1 - avg(rate(node_cpu_seconds_total{{mode="idle",cpu=~"{cpu_regex}"}}[{rate_window}]))'
+            data = self._query_prometheus_range(query, duration, step)
+            
+            if not data or data.get('status') != 'success':
+                continue
+            
+            # Extract time series values
+            if data['data']['result']:
+                series = data['data']['result'][0]  # Should be single result (avg across cores)
+                values = []
+                for timestamp, value in series['values']:
+                    # Convert to millicores (1 core = 1000 millicores)
+                    # Value is 0-1 representing utilization, multiply by number of cores
+                    num_cores = len(node_info['cpuset'].split(','))
+                    millicores = round(float(value) * num_cores * 1000, 1)
+                    values.append({
+                        "value": millicores
+                    })
+                
+                results.append({
+                    "node": node_ip,
+                    "values": values
+                })
+        
+        return {
+            "status": "success",
+            "metric_type": "node_cpu",
+            "unit": "millicores",
+            "query_info": {"duration": duration, "step": step, "rate_window": rate_window},
             "data": results
         }
     
@@ -474,11 +564,15 @@ def prometheus_get_timeseries(metric_type: str, namespace: str, duration: str = 
 def prometheus_get_node_timeseries(metric_type: str, duration: str = "10m") -> Dict[str, Any]:
     """
     Get historical node-level metrics with optimized settings.
-    Fixed 5s intervals, 10m max duration, concise output format.
+    Returns both container-level and node-level CPU metrics for complete visibility.
     
     Args:
         metric_type: Type of metric ("cpu", "memory")
         duration: Time range (max 10m)
+    
+    Returns:
+        For CPU: Both pod-level and node-level metrics
+        For memory: Node-level metrics only
     """
     tool = get_prometheus_tool()
     
@@ -502,39 +596,73 @@ def prometheus_get_node_timeseries(metric_type: str, duration: str = "10m") -> D
         return f"{chosen}s"
 
     step = _compute_step(duration)
-    rate_window = "30s"  # Consistent aggregation window for node-level CPU to match pod CPU
     
     try:
         # Compute window timestamps for comparability
         end_dt = datetime.now(timezone.utc)
         duration_seconds_norm = tool._parse_duration_to_seconds(duration)
         start_dt = end_dt - timedelta(seconds=duration_seconds_norm)
+        
         if metric_type == "cpu":
-            result = tool.get_node_cpu_timeseries(duration, step, rate_window=rate_window)
+            # Get both metrics for CPU
+            # 1. Container metrics (pod CPU usage)
+            container_result = tool.get_node_cpu_timeseries(duration, step, rate_window="30s")
+            # 2. Node-level metrics (physical node CPU from per-core measurements)
+            node_result = tool.get_node_core_cpu_timeseries(duration, step, rate_window="1m")
+            
+            # Check for errors
+            if container_result.get("error") and node_result.get("error"):
+                return {"error": "Failed to get both container and node CPU metrics"}
+            
+            # Format both results
+            container_formatted = _format_node_timeseries_output(container_result, metric_type, duration) if not container_result.get("error") else {}
+            node_formatted = _format_node_timeseries_output(node_result, metric_type, duration) if not node_result.get("error") else {}
+            
+            output = {
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+                "status": "success",
+                "metric_type": "node_cpu",
+                "unit": "millicores",
+                "duration": duration,
+                "step": step,
+                "metrics": {
+                    "pod_cpu": {
+                        "description": "CPU consumed by pods running on each node (workload only)",
+                        "values": container_formatted.get("values", {})
+                    },
+                    "node_cpu": {
+                        "description": "Total node CPU usage (represents physical machine CPU utilization)",
+                        "values": node_formatted.get("values", {})
+                    }
+                }
+            }
+            return output
+            
         elif metric_type == "memory":
             result = tool.get_node_memory_timeseries(duration, step)
+            
+            # Check if there's an error in the result first
+            if result.get("error"):
+                return result
+            
+            # Format for minimal token usage
+            base = _format_node_timeseries_output(result, metric_type, duration)
+            output = {
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+                "status": base.get("status"),
+                "metric_type": base.get("metric_type"),
+                "unit": base.get("unit"),
+                "duration": base.get("duration"),
+                "step": base.get("step"),
+                "values": base.get("values", {})
+            }
+            if "summary" in base:
+                output["summary"] = base["summary"]
+            return output
         else:
             return {"error": f"Unsupported node metric type: {metric_type}. Use 'cpu' or 'memory'"}
-        
-        # Check if there's an error in the result first
-        if result.get("error"):
-            return result
-        
-        # Format for minimal token usage
-        base = _format_node_timeseries_output(result, metric_type, duration)
-        output = {
-            "start": start_dt.isoformat(),
-            "end": end_dt.isoformat(),
-            "status": base.get("status"),
-            "metric_type": base.get("metric_type"),
-            "unit": base.get("unit"),
-            "duration": base.get("duration"),
-            "step": base.get("step"),
-            "values": base.get("values", {})
-        }
-        if "summary" in base:
-            output["summary"] = base["summary"]
-        return output
         
     except Exception as e:
         return {"error": f"Failed to get node {metric_type} timeseries: {str(e)}"}
@@ -611,10 +739,13 @@ def _format_node_timeseries_output(result: Dict[str, Any], metric_type: str, dur
     unit_map = {"cpu": "millicores", "memory": "MiB"}
     metric_type_map = {"cpu": "node_cpu", "memory": "node_memory"}
     
+    # Handle special case for node_core_cpu metric type
+    actual_metric_type = result.get("metric_type", metric_type_map.get(metric_type, f"node_{metric_type}"))
+    
     if not result.get("data"):
         return {
             "status": "success",
-            "metric_type": metric_type_map.get(metric_type, f"node_{metric_type}"),
+            "metric_type": actual_metric_type,
             "unit": result.get("unit", unit_map.get(metric_type, "unknown")),
             "duration": duration,
             "step": "5s",
@@ -646,14 +777,20 @@ def _format_node_timeseries_output(result: Dict[str, Any], metric_type: str, dur
                 # Skip this node if there's an error processing it
                 continue
         
-        return {
+        output = {
             "status": "success",
-            "metric_type": metric_type_map.get(metric_type, f"node_{metric_type}"),
+            "metric_type": actual_metric_type,
             "unit": unit,
             "duration": duration,
             "step": step,
             "values": node_data
         }
+        
+        # Include description if present (for core metrics)
+        if "description" in result:
+            output["description"] = result["description"]
+        
+        return output
         
     except Exception as e:
         return {

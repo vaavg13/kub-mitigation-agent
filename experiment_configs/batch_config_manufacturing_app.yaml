@@ -2,6 +2,7 @@ BATCH_CONFIG:
   namespace: "app-smart-manufacturing"
   app_directory: "./APPS"
 
+  warmup_duration: 60
   baseline_duration: 60
   chaos_warmup_duration: 60
   recovery_duration: 60
@@ -36,9 +37,12 @@ BATCH_CONFIG:
 
   traffic_config:
     endpoints:
-      - "http://172.23.0.5:31119/sensor-data-ingestion-edge-site-1"
-      - "http://172.23.0.5:31119/sensor-data-ingestion-edge-site-2"
-    requests_per_second: 5
+      - "http://172.23.0.5:30435/sensor-data-ingestion-edge-site-1"
+      - "http://172.23.0.5:30435/sensor-data-ingestion-edge-site-2"
+    num_users: 5
+    spawn_rate: 1
+    wait_time_min: 1
+    wait_time_max: 3
     request_timeout: 10
     collect_metrics: true
 

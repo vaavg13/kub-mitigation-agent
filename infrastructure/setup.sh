@@ -65,9 +65,41 @@ install_dependencies() {
         fi
     fi
     
+    # Ensure wget and curl are available (used by installers)
+    if ! command -v wget &> /dev/null; then
+        print_status "Installing wget..."
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update -y && sudo apt-get install -y wget
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y wget
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y wget
+        fi
+    fi
+    if ! command -v curl &> /dev/null; then
+        print_status "Installing curl..."
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update -y && sudo apt-get install -y curl ca-certificates gnupg
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y curl ca-certificates gnupg2
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y curl ca-certificates gnupg2
+        fi
+    fi
+    
     print_status "Dependencies installed successfully"
 }
 
+# Install Helm v3
+install_helm() {
+    if command -v helm &> /dev/null; then
+        print_status "Helm is already installed"
+        return 0
+    fi
+    print_status "Installing Helm..."
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    print_status "Helm installed"
+}
 # Function to install K3D
 install_k3d() {
     print_status "Installing K3D..."
@@ -140,21 +172,30 @@ apply_node_resource_limits() {
 
     # Apply limits to each node based on the configuration list
     for i in $(seq 0 $((TOTAL_AGENTS-1))); do
-        NODE_CPU=$(jq -r ".[${i}].cpu_capacity" "$SCRIPT_ABSOLUTE_DIR/nodes.json")
         NODE_MEM_GB_RAW=$(jq -r ".[${i}].memory_capacity_gb" "$SCRIPT_ABSOLUTE_DIR/nodes.json")
+        NODE_CPUSET=$(jq -r ".[${i}].cpuset_cpus // empty" "$SCRIPT_ABSOLUTE_DIR/nodes.json")
         
         # Ensure NODE_MEM_GB_RAW is treated as a number for arithmetic
         NODE_MEM_GB=$(echo "$NODE_MEM_GB_RAW" | awk '{print int($1)}')
         NODE_MEM_MB=$((NODE_MEM_GB * 1024))
 
         CONTAINER_NAME="k3d-${CLUSTER_NAME}-agent-$i"
-        print_status "Applying resource limits to node $i (container: ${CONTAINER_NAME}): ${NODE_CPU} CPU and ${NODE_MEM_MB}MB memory..."
-        
-        # Set memory and memory-swap together to avoid the error
-        docker update --cpus="$NODE_CPU" \
-                     --memory="${NODE_MEM_MB}m" \
-                     --memory-swap="${NODE_MEM_MB}m" \
-                     "$CONTAINER_NAME"
+        if [ -n "$NODE_CPUSET" ]; then
+            print_status "Applying resource limits to node $i (container: ${CONTAINER_NAME}): cpuset [$NODE_CPUSET], ${NODE_MEM_MB}MB memory..."
+            
+            # Set memory and memory-swap together to avoid the error
+            docker update --cpuset-cpus "$NODE_CPUSET" \
+                         --memory="${NODE_MEM_MB}m" \
+                         --memory-swap="${NODE_MEM_MB}m" \
+                         "$CONTAINER_NAME"
+        else
+            print_status "Applying resource limits to node $i (container: ${CONTAINER_NAME}): ${NODE_MEM_MB}MB memory..."
+            
+            # Set memory and memory-swap together to avoid the error
+            docker update --memory="${NODE_MEM_MB}m" \
+                         --memory-swap="${NODE_MEM_MB}m" \
+                         "$CONTAINER_NAME"
+        fi
     done
 
     print_status "Resource limits applied successfully"
@@ -247,10 +288,13 @@ setup() {
     print_status "Starting environment setup..."
     print_status "The following steps will be performed:"
     print_status "1. Clean existing environment (if requested)"
-    print_status "2. Install K3D if not already installed"
-    print_status "3. Create K3D cluster with specified number of agents"
-    print_status "4. Apply resource limits to nodes"
-    print_status "5. Apply labels to nodes"
+    print_status "2. Install base tools (yq, jq, curl, wget)"
+    print_status "3. Verify prerequisites (Docker, kubectl)"
+    print_status "4. Install Helm (if missing)"
+    print_status "5. Install K3D (if missing)"
+    print_status "6. Create K3D cluster with specified number of agents"
+    print_status "7. Apply resource limits to nodes"
+    print_status "8. Apply labels to nodes"
     
     read -p "Do you want to proceed with the setup? (y/n): " confirm
     if [[ $confirm != [yY] ]]; then
@@ -258,16 +302,26 @@ setup() {
         exit 0
     fi
     
-    # Check required commands
-    check_command "python3"
-    check_command "pip3"
-    check_command "docker"
-    
-    # Install dependencies
+    # Install base dependencies and runtime tooling
     install_dependencies
-    
-    # Check dependencies installed successfully
+
+    # Verify prerequisites
+    print_status "Verifying prerequisites (Docker, kubectl)..."
+    check_command "docker"
+    # Ensure current user can access Docker daemon (k3d requires non-sudo Docker access)
+    if ! docker info > /dev/null 2>&1; then
+        if sudo -n docker info > /dev/null 2>&1; then
+            print_error "Docker works only with sudo for this user. k3d needs Docker access without sudo. Add your user to the 'docker' group and re-login: sudo usermod -aG docker $USER"
+        else
+            print_error "Docker daemon not reachable. Ensure the Docker service is running."
+        fi
+        exit 1
+    fi
     check_command "kubectl"
+
+    # Install Helm if missing and verify tools
+    install_helm
+    check_command "helm"
     check_command "yq"
     
     # Install K3D

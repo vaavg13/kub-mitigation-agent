@@ -121,11 +121,11 @@ def undeploy_app_sync(experiment_config):
         print(f"Undeployment error: {e}")
         return False
 
-def reset_scheduling_policies(docker_handler) -> bool:
-    """Reset all scheduling policies and node constraints to clean state.
+def reset_scheduling_policies(node_stress_handler) -> bool:
+    """Reset node-level stressors and clean residual chaos objects.
     
     Args:
-        docker_handler: DockerConstraintsHandler instance for resetting node constraints
+        node_stress_handler: NodeStressHandler instance used during experiments
         
     Returns:
         True if reset was successful, False otherwise
@@ -133,10 +133,14 @@ def reset_scheduling_policies(docker_handler) -> bool:
     print(f"🔄 Resetting scheduling policies...", end="")
     
     try:
-        # 1. Reset Docker node constraints to proper specifications
-        docker_reset_success = docker_handler.reset_all_node_docker_constraints()
+        # 1. Cleanup any orphaned stress processes first
+        from ..anomalies.node_stress_handler import NodeStressHandler
+        NodeStressHandler.cleanup_orphaned_stress_processes()
         
-        # 2. Clean up any remaining Chaos Mesh experiments
+        # 2. Stop any host-level stress workloads tracked by handler
+        stress_reset_success = node_stress_handler.reset_all_node_stress()
+        
+        # 3. Clean up any remaining Chaos Mesh experiments
         chaos_cleanup_success = True
         try:
             # Direct kubectl cleanup without needing ChaosMeshHandler
@@ -147,7 +151,7 @@ def reset_scheduling_policies(docker_handler) -> bool:
         except Exception as e:
             chaos_cleanup_success = False
         
-        overall_success = docker_reset_success and chaos_cleanup_success
+        overall_success = stress_reset_success and chaos_cleanup_success
         
         if overall_success:
             print(" ✅ Done")

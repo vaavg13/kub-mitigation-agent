@@ -1,4 +1,3 @@
-langfuse
 langchain-anthropic
 langchain-google-genai
 langchain-xai

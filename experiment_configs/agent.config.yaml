@@ -6,10 +6,10 @@ llm:
   request_timeout: 120
 
 agent:
+  enabled: false
   max_rounds: 30
   timeout: 600
-  agent_type: react          # graph | react
 
 mcp:
-  server_command: "node --no-deprecation ./mcp/mcp-server-kubernetes/dist/index.js"
+  server_command: "node --no-deprecation /home/avgerinos/projects/kub-mitigation-agent/mcp/mcp-server-kubernetes/dist/index.js"
   timeout_seconds: 600  # 10 minutes - kubectl operations capped at 9 minutes

@@ -6,27 +6,27 @@ chaos_experiments:
   pod_level:
     cpu_stress:
       extreme:
-        one_pod: 5
+        one_pod: 0
         all_pods_app: 0
         all_pods_node: 0
     memory_stress:
       extreme:
-        one_pod: 5
+        one_pod: 0
         all_pods_app: 0
         all_pods_node: 0
     pod_failure:
       extreme:
-        one_pod: 5
+        one_pod: 0
         all_pods_app: 0
         all_pods_node: 0
   
   node_level:
-    docker_constraints: 5
+    node_stress: 0
   
   # traffic_spike:
   #   extreme: 2
   #   medium: 2
   #   mild: 2
   
-  no_failure: 5
+  no_failure: 1
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 import os
 import shlex
 from typing import List, Optional, Dict, Any
-from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -23,10 +22,9 @@ class KubernetesAgentConfig(BaseModel):
     xai_base_url: Optional[str] = Field(default_factory=lambda: os.getenv("XAI_BASE_URL"))
 
     # Agent behavior
+    enabled: bool = Field(default=True)
     max_rounds: int = Field(default=10)
     agent_timeout: int = Field(default=120)
-    agent_type: Literal["graph", "react"] = Field(default="graph")
-
     # MCP
     mcp_server_command: List[str] = Field(default_factory=lambda: ["node", "--no-deprecation", "./mcp-server-kubernetes/dist/index.js"])
     mcp_timeout_seconds: int = Field(default=int(os.getenv("MCP_TIMEOUT_SECONDS", "180")))
@@ -56,14 +54,9 @@ class KubernetesAgentConfig(BaseModel):
             request_timeout=int(llm.get("request_timeout", "120")),
 
             # Agent behavior - use YAML values, fall back to defaults if not present
+            enabled=bool(agent.get("enabled", True)),
             max_rounds=int(agent.get("max_rounds", "10")),
             agent_timeout=int(agent.get("timeout", "120")),
-            agent_type=str(
-                agent.get(
-                    "agent_type",
-                    agent.get("type", "graph")
-                )
-            ).lower(),
 
             # MCP
             mcp_server_command=server_cmd,

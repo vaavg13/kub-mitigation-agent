@@ -8,9 +8,8 @@ Randomness is only applied to target selection (nodes, apps, pods).
 import random
 from typing import Dict, List, Any
 
-# Docker constraints - very low limits to simulate node malfunction
-DOCKER_CPU_LIMITS = ["0.2"]
-DOCKER_MEMORY_LIMITS = ["128m"]
+# Node stress durations (in stress-ng timeout format)
+NODE_STRESS_DURATIONS = ["900s", "1200s", "1800s"]
 DEFAULT_SEED = 42
 
 
@@ -74,26 +73,24 @@ class ChaosBatchGenerator:
         
         return configs
     
-    def _generate_docker_constraints(self, count: int) -> List[Dict[str, Any]]:
-        """Generate Docker constraints configurations."""
+    def _generate_node_stress(self, count: int) -> List[Dict[str, Any]]:
+        """Generate node-level stress configurations."""
         configs = []
         
         for i in range(count):
-            # Randomly select node, CPU limit, and memory limit
+            # Randomly select node and stress duration
             node_name = random.choice(self.available_nodes)
-            cpu_limit = random.choice(DOCKER_CPU_LIMITS)
-            memory_limit = random.choice(DOCKER_MEMORY_LIMITS)
+            stress_duration = random.choice(NODE_STRESS_DURATIONS)
             
             config = {
-                "mode": "docker_only",
-                "fault_type": "docker_constraints",
-                "intensity": f"cpu:{cpu_limit},mem:{memory_limit}",
+                "mode": "node_stress_only",
+                "fault_type": "node_stress",
+                "intensity": f"duration:{stress_duration}",
                 "duration": "3600s",
                 "seed": self.seed,
                 "node_name": node_name,
-                "docker_cpu_limit": cpu_limit,
-                "docker_memory_limit": memory_limit,
-                "description": f"Docker constraints on {node_name}: CPU={cpu_limit}, Memory={memory_limit}"
+                "stress_duration": stress_duration,
+                "description": f"Node stress on {node_name}: CPU stress for {stress_duration}"
             }
             configs.append(config)
         
@@ -154,13 +151,13 @@ class ChaosBatchGenerator:
                     all_configs.extend(configs)
                     print(f"💻 Generated {count} {fault_type} configs ({intensity}, {target_mode})")
         
-        # 2. Node-level chaos (Docker constraints)
+        # 2. Node-level chaos (host CPU stress)
         node_level_spec = self.chaos_experiments_spec.get("node_level", {})
-        docker_count = node_level_spec.get("docker_constraints", 0)
-        if docker_count > 0:
-            configs = self._generate_docker_constraints(docker_count)
+        node_stress_count = node_level_spec.get("node_stress", 0)
+        if node_stress_count > 0:
+            configs = self._generate_node_stress(node_stress_count)
             all_configs.extend(configs)
-            print(f"🐳 Generated {docker_count} docker_constraints configs")
+            print(f"🔥 Generated {node_stress_count} node_stress configs")
         
         # 3. Traffic spikes
         traffic_spike_spec = self.chaos_experiments_spec.get("traffic_spike", {})
