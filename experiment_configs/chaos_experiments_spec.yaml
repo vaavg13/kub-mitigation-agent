@@ -20,13 +20,5 @@ chaos_experiments:
         all_pods_app: 0
         all_pods_node: 0
   
-  node_level:
-    node_stress: 1
-  
-  # traffic_spike:
-  #   extreme: 2
-  #   medium: 2
-  #   mild: 2
-  
-  no_failure: 0
+  no_failure: 1
 

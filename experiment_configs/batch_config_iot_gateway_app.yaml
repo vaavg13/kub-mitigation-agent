@@ -27,7 +27,7 @@ BATCH_CONFIG:
     - "iot-gateway-edge-site-2"
 
   traffic_config:
-    host: "http://172.21.0.5:30435"
+    host: "http://192.168.100.20:31885"
     endpoints:
       - "/iot-device-gateway-edge-site-1"
       - "/iot-device-gateway-edge-site-2"
