@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-test-app
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: chaos-test
+  template:
+    metadata:
+      labels:
+        app: chaos-test
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+
+

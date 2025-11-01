@@ -37,3 +37,6 @@ docs/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Vagrant
+.vagrant/

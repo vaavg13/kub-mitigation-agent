@@ -36,15 +36,15 @@ BATCH_CONFIG:
     - "reporting-dashboarding-cloud"
 
   traffic_config:
+    host: "http://172.23.0.5:30435"
     endpoints:
-      - "http://172.23.0.5:30435/sensor-data-ingestion-edge-site-1"
-      - "http://172.23.0.5:30435/sensor-data-ingestion-edge-site-2"
+      - "/sensor-data-ingestion-edge-site-1"
+      - "/sensor-data-ingestion-edge-site-2"
     num_users: 5
     spawn_rate: 1
     wait_time_min: 1
     wait_time_max: 3
     request_timeout: 10
-    collect_metrics: true
 
   test_settings:
     deploy_fresh_app: true

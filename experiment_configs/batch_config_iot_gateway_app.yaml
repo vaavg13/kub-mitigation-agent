@@ -2,7 +2,7 @@ BATCH_CONFIG:
   namespace: "app-iot-gateway"
   app_directory: "./APPS"
 
-  warmup_duration: 60
+  warmup_duration: 90
   baseline_duration: 60
   chaos_warmup_duration: 60
   recovery_duration: 60
@@ -27,15 +27,15 @@ BATCH_CONFIG:
     - "iot-gateway-edge-site-2"
 
   traffic_config:
+    host: "http://172.21.0.5:30435"
     endpoints:
-      - "http://172.21.0.5:30435/iot-device-gateway-edge-site-1"
-      - "http://172.21.0.5:30435/iot-device-gateway-edge-site-2"
+      - "/iot-device-gateway-edge-site-1"
+      - "/iot-device-gateway-edge-site-2"
     num_users: 100
     spawn_rate: 10
     wait_time_min: 0.5
     wait_time_max: 1.5
     request_timeout: 10
-    collect_metrics: true
 
   test_settings:
     deploy_fresh_app: true

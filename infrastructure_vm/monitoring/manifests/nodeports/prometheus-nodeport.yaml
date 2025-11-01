@@ -13,3 +13,5 @@ spec:
   selector:
     app.kubernetes.io/name: prometheus
     prometheus: prometheus-kube-prometheus-prometheus
+
+
