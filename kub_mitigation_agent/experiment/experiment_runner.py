@@ -15,18 +15,17 @@ from typing import Dict, Any, Optional, List
 from .traffic_generator import LocustTrafficGenerator
 
 # Import other project modules
-from ..anomalies.node_stress_handler import NodeStressHandler
 from ..anomalies.chaos_mesh_handler import ChaosMeshHandler
-from ..anomalies.traffic_spike_handler import TrafficSpikeHandler
 from kub_mitigation_agent.agent.agent import KubernetesAgent
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
-from kub_mitigation_agent.shared.prometheus_client import get_prometheus_tool
+from kub_mitigation_agent.clients.prometheus_client import get_prometheus_tool
 from .alert_config import build_intent, build_snapshot
 from .recovery_evaluator import evaluate_metrics_recovery, evaluate_problem_location_match
+from .experiment_k8s_ops import collect_istio_ingress_metrics
 
 logger = logging.getLogger(__name__)
 
-class ChaosAndMitigationExperiment:
+class MitigationExperimentRunner:
     """Orchestrates chaos injection and agent mitigation testing."""
     
     def __init__(self, 
@@ -39,9 +38,7 @@ class ChaosAndMitigationExperiment:
         self.agent_config = agent_config or KubernetesAgentConfig()
         
         # Initialize components
-        self.node_stress_handler = None
         self.chaos_mesh_handler = None
-        self.traffic_spike_handler = None
         self.agent = None
         self.traffic_generator = None
         self.chaos_experiment = None
@@ -53,10 +50,8 @@ class ChaosAndMitigationExperiment:
         
     async def setup(self):
         # Initialize Anomalie Handlers and Traffic Generator
-        self.node_stress_handler = NodeStressHandler(self.config)
         self.chaos_mesh_handler = ChaosMeshHandler(self.config)        
         self.traffic_generator = LocustTrafficGenerator(self.config["traffic_config"])
-        self.traffic_spike_handler = TrafficSpikeHandler(self.config, self.traffic_generator)
         
         if self.agent_config.enabled:
             self.agent = KubernetesAgent(self.agent_config)
@@ -70,20 +65,8 @@ class ChaosAndMitigationExperiment:
             # No chaos experiment to track
             self.chaos_experiment = None
             return True
-        elif mode == "node_stress_only":
-            exp = self.node_stress_handler.inject_node_stress_only(config)
-            if exp:
-                self.chaos_experiment = exp
-                return True
-            return False
         elif mode == "chaos_only":
             exp = self.chaos_mesh_handler.inject_chaos_mesh_only(config)
-            if exp:
-                self.chaos_experiment = exp
-                return True
-            return False
-        elif mode == "traffic_spike_only":
-            exp = self.traffic_spike_handler.inject_traffic_spike_only(config)
             if exp:
                 self.chaos_experiment = exp
                 return True
@@ -184,15 +167,7 @@ class ChaosAndMitigationExperiment:
                     print("Cleaning up chaos experiment...")
                 
                 mode = self.config.get("chaos_config", {}).get("mode")
-                if mode == "node_stress_only":
-                    if emergency:
-                        print("Node-stress-only experiment: No Chaos Mesh cleanup required")
-                elif mode == "traffic_spike_only":
-                    # No cleanup needed - traffic is already stopped, and each experiment
-                    # creates a fresh traffic generator from config with original RPS
-                    if emergency:
-                        print("Traffic spike experiment: No cleanup needed (traffic already stopped)")
-                else:
+                if mode != "no_failure":
                     loop = asyncio.get_event_loop()
                     success = await loop.run_in_executor(
                         None, 
@@ -221,7 +196,7 @@ class ChaosAndMitigationExperiment:
         if emergency:
             print("=" * 40)
             print("Emergency cleanup completed - safe to exit")
-            print("Next run will automatically clear active node stress before starting")
+            
 
 
     async def run_full_experiment(self) -> Dict[str, Any]:
@@ -253,25 +228,15 @@ class ChaosAndMitigationExperiment:
                 results["phases_completed"].append("warmup")
             
             # === BASELINE METRICS ===
-            prerecorded_baseline = self.config.get("prerecorded_baseline")
-            
-            if prerecorded_baseline:
-                # Use prerecorded baseline from first experiment
-                print(f"\n▶ Phase 2: Baseline metrics (prerecorded)")
-                baseline_metrics = prerecorded_baseline
-                results["phase_metrics"]["baseline"] = baseline_metrics
-                print(f"  ♻️  Reused: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
-            else:
-                # Measure baseline normally
-                phase_label = "Phase 2" if warmup_duration > 0 else "Phase 1"
-                print(f"\n▶ {phase_label}: Baseline metrics ({self.config['baseline_duration']}s)")
-                if warmup_duration == 0:
-                    await self.traffic_generator.start_traffic()
-                self.traffic_generator.reset_phase_metrics()
-                await asyncio.sleep(self.config["baseline_duration"])
-                baseline_metrics = self.traffic_generator.get_phase_metrics(self.config["baseline_duration"])
-                results["phase_metrics"]["baseline"] = baseline_metrics
-                print(f"  ✅ Measured: {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
+            phase_label = "Phase 2" if warmup_duration > 0 else "Phase 1"
+            print(f"\n▶ {phase_label}: Baseline metrics ({self.config['baseline_duration']}s)")
+            if warmup_duration == 0:
+                await self.traffic_generator.start_traffic()
+            await asyncio.sleep(self.config["baseline_duration"])
+            baseline_metrics = collect_istio_ingress_metrics(self.config["baseline_duration"])
+            results["phase_metrics"]["baseline"] = baseline_metrics
+            metrics_source = baseline_metrics.get("source", "unknown")
+            print(f"  ✅ Measured ({metrics_source}): {baseline_metrics['success_rate_percent']:.1f}% success, P95: {baseline_metrics['p95_latency_seconds']:.3f}s")
             
             results["phases_completed"].append("baseline")
             
@@ -286,13 +251,12 @@ class ChaosAndMitigationExperiment:
             # === CHAOS WARMUP (record metrics during active chaos) ===
             phase_num = 3 if warmup_duration > 0 else 2
             print(f"\n▶ Phase {phase_num}: Chaos metrics ({self.config['chaos_warmup_duration']}s)")
-            # Reset metrics at START of chaos measurement phase
-            self.traffic_generator.reset_phase_metrics()
             await asyncio.sleep(self.config["chaos_warmup_duration"])
             
-            chaos_metrics = self.traffic_generator.get_phase_metrics(self.config["chaos_warmup_duration"])
+            chaos_metrics = collect_istio_ingress_metrics(self.config["chaos_warmup_duration"])
             results["phase_metrics"]["chaos"] = chaos_metrics
-            print(f"  ⚠️  Chaos: {chaos_metrics['success_rate_percent']:.1f}% success, P95: {chaos_metrics['p95_latency_seconds']:.3f}s")
+            metrics_source = chaos_metrics.get("source", "unknown")
+            print(f"  ⚠️  Chaos ({metrics_source}): {chaos_metrics['success_rate_percent']:.1f}% success, P95: {chaos_metrics['p95_latency_seconds']:.3f}s")
             
             results["phases_completed"].append("chaos_warmup")
             
@@ -317,10 +281,14 @@ class ChaosAndMitigationExperiment:
                     print(f"  • Objective: {operational_summary.get('objective', 'N/A')}")
                     print(f"  • Status: {operational_summary.get('status', 'N/A')}")
                     print(f"  • Success: {'✅' if operational_summary.get('success') else '❌'}")
-                    if operational_summary.get('problem_location'):
+                    # Always show Problem Location (even if none)
+                    problem_location_list = operational_summary.get('problem_location') or []
+                    if problem_location_list:
                         print(f"  • Problem Location:")
-                        for loc in operational_summary['problem_location']:
+                        for loc in problem_location_list:
                             print(f"    - {loc.get('type', 'unknown')}: {loc.get('name', 'N/A')}")
+                    else:
+                        print(f"  • Problem Location: none")
                     if operational_summary.get('actions_completed'):
                         print(f"  • Actions: {', '.join(operational_summary['actions_completed'])}")
                     if operational_summary.get('results_achieved'):
@@ -336,13 +304,37 @@ class ChaosAndMitigationExperiment:
             # === RECOVERY METRICS ===
             phase_num = 4 if warmup_duration > 0 else 3
             print(f"\n▶ Phase {phase_num}: Recovery metrics ({self.config['recovery_duration']}s)")
-            # Reset metrics at START of recovery measurement phase (after agent execution)
-            self.traffic_generator.reset_phase_metrics()
             await asyncio.sleep(self.config["recovery_duration"])
             
-            recovery_metrics = self.traffic_generator.get_phase_metrics(self.config["recovery_duration"])
+            recovery_metrics = collect_istio_ingress_metrics(self.config["recovery_duration"])
             results["phase_metrics"]["recovery"] = recovery_metrics
-            print(f"  🩹 Recovery: {recovery_metrics['success_rate_percent']:.1f}% success, P95: {recovery_metrics['p95_latency_seconds']:.3f}s")
+            metrics_source = recovery_metrics.get("source", "unknown")
+            print(f"  🩹 Recovery ({metrics_source}): {recovery_metrics['success_rate_percent']:.1f}% success, P95: {recovery_metrics['p95_latency_seconds']:.3f}s")
+            # Explicit recovery evaluation against baseline
+            recovery_eval_preview = evaluate_metrics_recovery(results["phase_metrics"])  # uses baseline vs recovery
+            cmp = recovery_eval_preview.get("metrics_comparison", {})
+            lr = cmp.get("latency_ratio")
+            sd = cmp.get("success_rate_diff")
+            ok = recovery_eval_preview.get("success", False)
+            status_label = "within baseline range" if ok else "outside baseline range"
+            emoji = "✅" if ok else "❌"
+            # Show baseline vs recovery details
+            baseline_m = results["phase_metrics"].get("baseline", {})
+            chaos_m = results["phase_metrics"].get("chaos", {})
+            b_sr = baseline_m.get("success_rate_percent")
+            b_p95 = baseline_m.get("p95_latency_seconds")
+            c_sr = chaos_m.get("success_rate_percent")
+            c_p95 = chaos_m.get("p95_latency_seconds")
+            r_sr = recovery_metrics.get("success_rate_percent")
+            r_p95 = recovery_metrics.get("p95_latency_seconds")
+            if c_sr is not None and c_p95 is not None:
+                print(f"  📊 Chaos: {c_sr:.1f}% success, P95: {c_p95:.3f}s")
+            print(f"  📊 Baseline: {b_sr:.1f}% success, P95: {b_p95:.3f}s")
+            print(f"  📊 Recovery: {r_sr:.1f}% success, P95: {r_p95:.3f}s")
+            if isinstance(lr, (int, float)) and isinstance(sd, (int, float)):
+                print(f"  📈 Recovery evaluation: {emoji} {status_label} (latency {lr:.2f}x baseline, success ±{sd:.1f}% vs baseline)")
+            else:
+                print(f"  📈 Recovery evaluation: {emoji} {status_label}")
             
             # Evaluate problem location identification
             problem_location = results.get("operational_summary", {}).get("problem_location") if results.get("operational_summary") else None
@@ -352,18 +344,16 @@ class ChaosAndMitigationExperiment:
             )
             results["location_evaluation"] = location_evaluation
             
-            # Print location identification results
-            if location_evaluation["location_identified"]:
-                # Correctly identified (including empty list for baseline)
-                if location_evaluation['expected_target'] is None:
-                    print(f"  ✅ Baseline: Agent correctly reported no problem location")
-                else:
-                    print(f"  ✅ Problem location correctly identified: {location_evaluation['expected_target']}")
+            # Print standardized problem location identification results
+            expected_target = location_evaluation.get('expected_target')
+            expected_label = expected_target if expected_target is not None else "none"
+            reported_locations = location_evaluation.get('reported_locations') or []
+            if isinstance(reported_locations, list):
+                reported_label = ", ".join([str(x) for x in reported_locations]) if reported_locations else "none"
             else:
-                print(f"  ❌ Problem location mismatch:")
-                expected = location_evaluation['expected_target'] or "none (baseline)"
-                print(f"     Expected: {expected}")
-                print(f"     Reported: {location_evaluation['reported_locations']}")
+                reported_label = str(reported_locations)
+            result_emoji = "✅" if location_evaluation.get("location_identified") else "❌"
+            print(f"  🎯 Problem location: expected={expected_label}; agent={reported_label}; result={result_emoji}")
             
             results["phases_completed"].append("recovery")
             

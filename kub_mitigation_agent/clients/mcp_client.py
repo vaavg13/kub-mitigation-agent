@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict, Optional
 
 class MCPClient:
-    def __init__(self, server_command: list, response_timeout_seconds: int = 60):
+    def __init__(self, server_command: str, response_timeout_seconds: int = 60):
         self.server_command = server_command
         self.process: Optional[asyncio.subprocess.Process] = None
         self.request_id = 1
@@ -12,8 +12,8 @@ class MCPClient:
         self.response_timeout_seconds = response_timeout_seconds
 
     async def start(self):
-        self.process = await asyncio.create_subprocess_exec(
-            *self.server_command,
+        self.process = await asyncio.create_subprocess_shell(
+            self.server_command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=None  # Don't capture stderr
@@ -102,3 +102,5 @@ class MCPClient:
                 # If anything fails during cleanup, just ignore it
                 # This prevents the "event loop is closed" error
                 pass
+
+

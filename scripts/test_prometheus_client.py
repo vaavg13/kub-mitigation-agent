@@ -10,8 +10,10 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 
-from kub_mitigation_agent.shared.prometheus_client import (
+from kub_mitigation_agent.clients.prometheus_client import (
     get_prometheus_tool,
+)
+from kub_mitigation_agent.agent.metrics_api import (
     prometheus_get_timeseries,
     prometheus_get_node_timeseries,
     prometheus_get_service_topology,

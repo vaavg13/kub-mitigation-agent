@@ -32,9 +32,15 @@ if __name__ == "__main__":
     cfg = KubernetesAgentConfig.from_yaml_dict(cfg_dict)
 
     # Setup centralized logging
-    from kub_mitigation_agent.shared.logging_config import setup_logging
+    from kub_mitigation_agent.logging_config import setup_logging
     setup_logging()
-    print("MCP command:", " ".join(cfg.mcp_server_command))
+    # Targeted verbosity: show our agent details, suppress SDK/http noise
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger("kub_mitigation_agent").setLevel(logging.DEBUG)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    print("MCP command:", cfg.mcp_server_command)
     
     # Test intent - diagnose performance issue
     NAMESPACE = "app-iot-gateway"
@@ -56,9 +62,15 @@ if __name__ == "__main__":
             )
         finally:
             await agent.cleanup()
-        
-        print(f"Actions taken: {len(actions_taken)}")
-        print(f"Operational summary:\n{json.dumps(operational_summary, indent=2)}")
+
+        # Print full action list with parameters and results
+        print("\n===== ACTIONS (FULL) =====")
+        for i, action in enumerate(actions_taken, start=1):
+            print(f"\n-- Action #{i} --")
+            print(json.dumps(action, indent=2))
+
+        print("\n===== OPERATIONAL SUMMARY =====")
+        print(json.dumps(operational_summary, indent=2))
         
         return actions_taken, operational_summary
 

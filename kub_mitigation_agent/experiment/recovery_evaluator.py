@@ -131,8 +131,7 @@ def evaluate_problem_location_match(
             expected_target = chaos_config.get("target_app")
         elif target_mode == "all_pods_node":
             expected_target = chaos_config.get("node_name")
-    elif mode == "node_stress_only":
-        expected_target = chaos_config.get("node_name")
+    
     
     # Handle case where we couldn't extract expected target
     if not expected_target:

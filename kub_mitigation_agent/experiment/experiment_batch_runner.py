@@ -7,18 +7,19 @@ Runs multiple chaos experiments with complete isolation between each experiment.
 import asyncio
 import time
 import logging
+import subprocess
+import requests
 from datetime import datetime
 from typing import Dict, Any
-from .chaos_mitigation_experiment import ChaosAndMitigationExperiment
-from .experiment_utils import deploy_fresh_app_sync, undeploy_app_sync, reset_scheduling_policies
-from .simple_experiment_logger import SimpleExperimentLogger
-from .chaos_batch_generator import ChaosBatchGenerator, DEFAULT_SEED
-from ..anomalies.node_stress_handler import NodeStressHandler
+from .experiment_runner import MitigationExperimentRunner
+from .experiment_k8s_ops import deploy_fresh_app_sync, undeploy_app_sync, reset_scheduling_policies
+from .experiment_logger import SimpleExperimentLogger
+from kub_mitigation_agent.anomalies.anomaly_config_generator import AnomalyConfigGenerator, DEFAULT_SEED
 from ..agent.config import KubernetesAgentConfig
 
 logger = logging.getLogger(__name__)
 
-class BatchChaosExperiment:
+class BatchExperimentRunner:
     """Orchestrates multiple chaos experiments with complete isolation."""
     
     def __init__(self, batch_config: Dict[str, Any], output_base_dir: str = "DATA", agent_config: KubernetesAgentConfig = None, resume_from: int = None):
@@ -45,8 +46,28 @@ class BatchChaosExperiment:
         random_seed = self.batch_settings.get("random_seed", DEFAULT_SEED)
         
         print(f"🎲 Generating chaos configurations from spec (seed: {random_seed})")
-        generator = ChaosBatchGenerator(batch_config, seed=random_seed)
+        # Show available resources
+        available_nodes_count = len(self.batch_config.get("node_resources", {}))
+        available_apps_count = len(self.batch_config.get("available_deployments", []))
+        print(f"📊 Available nodes: {available_nodes_count}")
+        print(f"📊 Available apps: {available_apps_count}")
+
+        # Preview what will be generated from spec (only non-zero counts)
+        chaos_spec = self.batch_config.get("chaos_experiments", {})
+        pod_level_spec = chaos_spec.get("pod_level", {})
+        for fault_type, intensities in pod_level_spec.items():
+            for intensity, target_modes in intensities.items():
+                for target_mode, count in target_modes.items():
+                    if count > 0:
+                        print(f"💻 Generated {count} {fault_type} configs ({intensity}, {target_mode})")
+        no_failure_count = chaos_spec.get("no_failure", 0)
+        if no_failure_count > 0:
+            print(f"✅ Generated {no_failure_count} no_failure configs")
+
+        generator = AnomalyConfigGenerator(batch_config, seed=random_seed)
         self.chaos_configs = generator.generate_from_spec()
+        print(f"🔀 Configurations shuffled for random execution order")
+        print(f"📦 Total configurations generated: {len(self.chaos_configs)}")
         
         # Extract namespace/application name from config
         namespace = self.batch_config.get("namespace", "unknown-app")
@@ -68,12 +89,35 @@ class BatchChaosExperiment:
         print(f"💾 Logs will be saved to: {self.simple_logger.output_dir}")
         
         # Initialize handlers with base config
-        self.node_stress_handler = NodeStressHandler(self.batch_config)
         self.chaos_mesh_handler = None
         
-        # Baseline metrics storage - first experiment measures, rest reuse
-        self.first_baseline_metrics = None
+        
     
+    def _kubectl_ready(self, timeout: int = 10) -> bool:
+        """Return True if kubectl can reach the cluster."""
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "nodes", "-o", "name", "--request-timeout=5s"],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            return result.returncode == 0 and bool(result.stdout.strip())
+        except Exception:
+            return False
+
+    def _prometheus_ready(self, url: str = "http://localhost:9090", timeout: int = 3) -> bool:
+        """Return True if Prometheus HTTP endpoint responds as ready."""
+        try:
+            resp = requests.get(f"{url}/-/ready", timeout=timeout)
+            if resp.status_code == 200:
+                return True
+            # Fallback: basic query to ensure API works
+            q = requests.get(f"{url}/api/v1/query", params={"query": "up"}, timeout=timeout)
+            return q.ok and q.json().get("status") == "success"
+        except Exception:
+            return False
+
     def _create_experiment_config(self, chaos_config: Dict[str, Any]) -> Dict[str, Any]:
         """Create complete experiment config by adding chaos config to batch config."""
         experiment_config = self.batch_config.copy()
@@ -138,12 +182,9 @@ class BatchChaosExperiment:
             print(f"\n▶ Step 2: Running chaos experiment")
             print(f"  ├─ Chaos injection type: {experiment_config['chaos_config']['mode']} - {experiment_config['chaos_config']['fault_type']}")
             
-            # Inject prerecorded baseline if already measured
-            if self.first_baseline_metrics is not None:
-                experiment_config["prerecorded_baseline"] = self.first_baseline_metrics
-                print(f"  ├─ Using prerecorded baseline from first experiment")
             
-            experiment = ChaosAndMitigationExperiment(
+            
+            experiment = MitigationExperimentRunner(
                 experiment_config,
                 experiment_id=experiment_id,
                 agent_config=self.agent_config
@@ -151,10 +192,7 @@ class BatchChaosExperiment:
             
             results = await experiment.run_full_experiment()
             
-            # Capture baseline from first experiment that measures it
-            if self.first_baseline_metrics is None and results.get("phase_metrics", {}).get("baseline"):
-                self.first_baseline_metrics = results["phase_metrics"]["baseline"]
-                print(f"  └─ Baseline captured for batch reuse")
+            
             
             # Update experiment result with data from experiment
             experiment_result["success"] = results.get("success", False)
@@ -167,9 +205,8 @@ class BatchChaosExperiment:
             experiment_result["operational_summary"] = results.get("operational_summary")
             experiment_result["location_evaluation"] = results.get("location_evaluation")
             
-            # Update batch statistics
+            # Update batch statistics (silent on success)
             if results.get("success"):
-                print(f"✅ Experiment {experiment_id} completed successfully")
                 self.batch_results["successful_experiments"] += 1
             else:
                 print(f"❌ Experiment {experiment_id} failed")
@@ -227,6 +264,11 @@ class BatchChaosExperiment:
         print(f"🎯 STARTING BATCH EXPERIMENT: {self.batch_results['batch_id']}")
         print(f"{'='*70}")
         print(f"📊 Total experiments: {len(self.chaos_configs)}")
+        # Show LLM model being used by the agent at the very beginning
+        try:
+            print(f"🤖 Agent LLM: {self.agent_config.provider}/{self.agent_config.model}")
+        except Exception:
+            pass
         
         # Handle resume logic
         start_index = 0
@@ -247,12 +289,32 @@ class BatchChaosExperiment:
         print(f"💾 Output directory: {self.simple_logger.output_dir}")
         print(f"{'─'*70}")
         
+        # Preflight connectivity checks
+        print(f"\n▶ Preflight checks:")
+        if not self._kubectl_ready():
+            error_msg = (
+                "kubectl is not reachable. Ensure KUBECONFIG is set and cluster is accessible."
+            )
+            print(f"  ❌ {error_msg}")
+            self.batch_results["error"] = error_msg
+            return self.batch_results
+        else:
+            print("  ✅ kubectl connectivity OK")
+
+        if not self._prometheus_ready():
+            error_msg = (
+                "Prometheus is not reachable at http://localhost:9090. If running in-cluster, ensure port-forward is active (e.g., 'kubectl -n monitoring port-forward svc/prometheus 9090:9090')."
+            )
+            print(f"  ❌ {error_msg}")
+            self.batch_results["error"] = error_msg
+            return self.batch_results
+        else:
+            print("  ✅ Prometheus connectivity OK")
+
         # Initial cleanup and policy reset before starting batch
         print(f"\n▶ Initial setup:")
-        print(f"  └─ Cleaning up orphaned processes...", end=" ")
-        NodeStressHandler.cleanup_orphaned_stress_processes()
-        print(f"  └─ Resetting scheduling policies...", end=" ")
-        initial_reset_success = reset_scheduling_policies(self.node_stress_handler)
+        print(f"  └─ Resetting scheduling policies...\n", end=" ")
+        initial_reset_success = reset_scheduling_policies()
         if not initial_reset_success:
             print(f"  ⚠️  Some issues during initial setup, continuing...")
         else:
@@ -279,7 +341,7 @@ class BatchChaosExperiment:
                 
                 # Reset scheduling policies after each experiment (cleanup step)
                 print(f"\n▶ Post-experiment cleanup: ", end="")
-                reset_success = reset_scheduling_policies(self.node_stress_handler)
+                reset_success = reset_scheduling_policies()
                 if not reset_success:
                     print(f"  ⚠️  Some issues during reset, continuing...")
                 
@@ -307,8 +369,11 @@ class BatchChaosExperiment:
         finally:
             # Always save batch summary (success, interrupted, or failed)
             try:
+                print(f"\n{'-'*70}")
+                print(f"📦 Batch summary")
                 batch_summary_file = self.simple_logger.save_batch_summary(self.batch_results)
-                print(f"\n💾 Batch summary saved: {batch_summary_file}")
+                print(f"💾 Batch summary saved: {batch_summary_file}")
+                print(f"{'-'*70}")
                 self.batch_results["batch_summary_saved"] = True
                 self.batch_results["batch_summary_file"] = str(batch_summary_file)
             except Exception as summary_error:

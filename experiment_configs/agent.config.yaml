@@ -6,9 +6,10 @@ llm:
   request_timeout: 120
 
 agent:
-  enabled: false
+  enabled: true
   max_rounds: 30
   timeout: 600
+  full_output: true
 
 mcp:
   server_command: "node --no-deprecation /home/avgerinos/projects/kub-mitigation-agent/mcp/mcp-server-kubernetes/dist/index.js"

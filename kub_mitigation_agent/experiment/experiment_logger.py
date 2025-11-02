@@ -148,19 +148,11 @@ class SimpleExperimentLogger:
             final_latency_p95=recovery.get("p95_latency_seconds")
         )
         
-        # Print location evaluation result
-        if location_evaluation and location_evaluation.get("location_identified") is not None:
-            if location_evaluation.get("location_identified"):
-                print(f"  🎯 Location identified correctly: {location_evaluation.get('match_details', '')}")
-            else:
-                print(f"  ❌ Location not identified: {location_evaluation.get('match_details', '')}")
-        
         # Save to file
         log_file = self.output_dir / f"{experiment_id}.json"
         with open(log_file, 'w') as f:
             json.dump(asdict(log), f, indent=2)
-            
-        logger.info(f"💾 Saved experiment log: {log_file.name}")
+        
         return log_file
     
     def _simplify_metrics(self, metrics: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -215,6 +207,5 @@ class SimpleExperimentLogger:
         
         with open(summary_file, 'w') as f:
             json.dump(summary, f, indent=2)
-            
-        logger.info(f"📊 Saved batch summary: {summary_file}")
+        
         return summary_file 

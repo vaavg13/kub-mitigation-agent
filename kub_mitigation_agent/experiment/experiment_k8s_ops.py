@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
 Experiment Utilities
-Helper functions for experiment deployment and cleanup.
+Helper functions for experiment deployment, cleanup, and metrics collection.
 """
 
 import time
 import subprocess
+import logging
 from typing import Dict, Any
 from kubernetes import client, config
 from mu_bench.deployers.manager import K8sDeploymentManager
+
+logger = logging.getLogger(__name__)
 
 def wait_for_pods_ready_sync(namespace: str, timeout: int = 300) -> bool:
     """Wait for all pods in namespace to be ready (synchronous version)."""
@@ -121,45 +124,62 @@ def undeploy_app_sync(experiment_config):
         print(f"Undeployment error: {e}")
         return False
 
-def reset_scheduling_policies(node_stress_handler) -> bool:
-    """Reset node-level stressors and clean residual chaos objects.
+def reset_scheduling_policies() -> bool:
+    """Clean residual chaos objects from the cluster.
     
-    Args:
-        node_stress_handler: NodeStressHandler instance used during experiments
-        
     Returns:
-        True if reset was successful, False otherwise
+        True if cleanup was successful, False otherwise
     """
     print(f"🔄 Resetting scheduling policies...", end="")
     
     try:
-        # 1. Cleanup any orphaned stress processes first
-        from ..anomalies.node_stress_handler import NodeStressHandler
-        NodeStressHandler.cleanup_orphaned_stress_processes()
-        
-        # 2. Stop any host-level stress workloads tracked by handler
-        stress_reset_success = node_stress_handler.reset_all_node_stress()
-        
-        # 3. Clean up any remaining Chaos Mesh experiments
-        chaos_cleanup_success = True
-        try:
-            # Direct kubectl cleanup without needing ChaosMeshHandler
-            cleanup_cmd = "kubectl delete stresschaos,podchaos,networkchaos --all --all-namespaces --ignore-not-found=true"
-            result = subprocess.run(cleanup_cmd.split(), capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                chaos_cleanup_success = False
-        except Exception as e:
-            chaos_cleanup_success = False
-        
-        overall_success = stress_reset_success and chaos_cleanup_success
-        
-        if overall_success:
+        # Clean up any remaining Chaos Mesh experiments
+        cleanup_cmd = "kubectl delete stresschaos,podchaos,networkchaos --all --all-namespaces --ignore-not-found=true"
+        result = subprocess.run(cleanup_cmd.split(), capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
             print(" ✅ Done")
+            return True
         else:
             print(" ⚠️  Some issues occurred")
-            
-        return overall_success
-        
+            return False
     except Exception as e:
         print(f" ❌ Error: {e}")
         return False
+
+
+def collect_istio_ingress_metrics(duration_seconds: float) -> Dict[str, Any]:
+    """Collect metrics from Istio ingress gateway for the specified time window.
+    
+    Queries Prometheus for server-side metrics from istio-ingressgateway.
+    Returns P95 latency, success rate, and request counts.
+    
+    Args:
+        duration_seconds: Time window to measure (e.g., 60 for last 60 seconds)
+        
+    Returns:
+        Dict with keys:
+            - p95_latency_seconds: P95 latency in seconds
+            - success_rate_percent: Success rate percentage
+            - total_requests: Total requests in window
+            - successful_requests: Successful requests (2xx, 3xx)
+            - failed_requests: Failed requests (4xx, 5xx)
+            - source: "istio-ingress" or "unavailable"
+    """
+    try:
+        from ..clients.prometheus_client import get_prometheus_tool
+        prometheus_tool = get_prometheus_tool()
+        
+        metrics = prometheus_tool.get_istio_ingress_metrics(duration_seconds)
+        metrics["source"] = "istio-ingress"
+        return metrics
+        
+    except Exception as e:
+        logger.warning(f"Failed to collect Istio ingress metrics: {e}")
+        return {
+            "p95_latency_seconds": 0,
+            "success_rate_percent": 0,
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "source": "unavailable"
+        }

@@ -10,9 +10,9 @@ try:
 except ImportError:
     pass
 
-from kub_mitigation_agent.experiment.batch_chaos_experiment import BatchChaosExperiment
+from kub_mitigation_agent.experiment.experiment_batch_runner import BatchExperimentRunner
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
-from kub_mitigation_agent.shared.logging_config import setup_logging
+from kub_mitigation_agent.logging_config import setup_logging
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(dotenv_path=REPO_ROOT / ".env")
@@ -68,7 +68,7 @@ async def main():
     args = parse_arguments()
     batch_config, agent_config = load_configs(args.config)
     
-    batch_experiment = BatchChaosExperiment(
+    batch_experiment = BatchExperimentRunner(
         batch_config,
         output_base_dir="DATASET_LOGS",
         agent_config=agent_config,

@@ -16,9 +16,9 @@ chaos_experiments:
         all_pods_node: 0
     pod_failure:
       extreme:
-        one_pod: 0
+        one_pod: 1
         all_pods_app: 0
         all_pods_node: 0
   
-  no_failure: 1
+  no_failure: 0
 

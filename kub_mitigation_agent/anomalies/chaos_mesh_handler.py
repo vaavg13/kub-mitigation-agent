@@ -271,8 +271,7 @@ class ChaosMeshHandler:
             "name": experiment_name,
             "fault_type": fault_type,  # Add fault_type for cleanup
             "app": target_app,  # Can be None for node-level chaos
-            "config": config,
-            "node_stress_only": False
+            "config": config
         }
 
         # Set experiment duration to 1 hour (will be cleaned up by stop_chaos)
@@ -305,6 +304,6 @@ class ChaosMeshHandler:
     
     def cleanup_chaos_experiment(self, experiment_config: Dict[str, Any]) -> bool:
         """Clean up a chaos experiment."""
-        if experiment_config and not experiment_config.get("node_stress_only", False):
+        if experiment_config:
             return self.undeploy_experiment(experiment_config)
         return True 

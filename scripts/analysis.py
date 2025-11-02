@@ -72,8 +72,7 @@ def analyze_experiment(experiment_data: Dict[str, Any]) -> Dict[str, Any]:
     if mode == 'chaos_only':
         app = chaos_config.get('target_app')
         ground_truth_target = None if app == 'all_pods_node' else app
-    elif mode == 'docker_only':
-        ground_truth_target = chaos_config.get('node_name')
+    
 
     is_node_wise_chaos = (mode == 'chaos_only' and chaos_config.get('target_app') == 'all_pods_node')
 
