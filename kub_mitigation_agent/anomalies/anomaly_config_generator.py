@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-Anomaly (Chaos) Config Generator
-Generates chaos configurations based on explicit counts from config.
-Randomness is only applied to target selection (nodes, apps, pods).
+Anomaly generator that converts a spec into concrete Anomaly instances.
+Randomness is only applied to target selection (nodes, apps).
 """
 
 import random
 from typing import Dict, List, Any
 
+from .anomaly_base import Anomaly
+from .node_anomaly_handler import NodeAnomalyHandler
+from .pod_anomaly_handler import PodAnomalyHandler
+
 DEFAULT_SEED = 42
 
 
 class AnomalyConfigGenerator:
-    """Generates chaos configurations based on explicit experiment specifications."""
+    """Converts chaos_experiments spec to concrete anomaly instances."""
     
     def __init__(self, base_config: Dict[str, Any], seed: int = DEFAULT_SEED):
         """
@@ -26,97 +29,197 @@ class AnomalyConfigGenerator:
         self.seed = seed
         random.seed(seed)
         
-        # Extract available nodes and apps from base config
-        self.available_nodes = list(base_config.get("node_resources", {}).keys())
+        # Extract available apps and namespace
         self.available_apps = base_config.get("available_deployments", [])
-        
-        if not self.available_nodes:
-            raise ValueError("No nodes found in base_config.node_resources")
-        if not self.available_apps:
-            raise ValueError("No available deployments found in base_config.available_deployments")
+        self.namespace = base_config.get("namespace", "default")
         
         # Parse chaos experiments specification
         self.chaos_experiments_spec = base_config.get("chaos_experiments", {})
         
         # Printing is handled by the batch runner
     
-    def _generate_pod_level_chaos(self, fault_type: str, intensity: str, target_mode: str, count: int) -> List[Dict[str, Any]]:
-        """Generate pod-level chaos configurations (cpu_stress, memory_stress, pod_failure)."""
-        configs = []
-        
-        for i in range(count):
-            config = {
-                "mode": "chaos_only",
-                "fault_type": fault_type,
-                "intensity": intensity,
-                "duration": "3600s",
-                "seed": self.seed,
-                "target_mode": target_mode,
-            }
-            
-            # Randomly select target based on mode
-            if target_mode in ["one_pod", "all_pods_app"]:
-                target_app = random.choice(self.available_apps)
-                config["target_app"] = target_app
-                config["description"] = f"{fault_type} on {target_app} ({target_mode}, {intensity})"
-            elif target_mode == "all_pods_node":
-                node_name = random.choice(self.available_nodes)
-                config["node_name"] = node_name
-                config["target_app"] = "node-wide"
-                config["description"] = f"{fault_type} on node {node_name} ({intensity})"
-            
-            configs.append(config)
-        
-        return configs
-    
-    def _generate_no_failure(self, count: int) -> List[Dict[str, Any]]:
-        """Generate no-failure baseline configurations."""
-        configs = []
-        
-        for i in range(count):
-            config = {
-                "mode": "no_failure",
-                "fault_type": "none",
-                "intensity": "none",
-                "duration": "3600s",
-                "seed": self.seed,
-                "description": f"No failure baseline experiment {i+1}"
-            }
-            configs.append(config)
-        
-        return configs
-    
-    def generate_from_spec(self) -> List[Dict[str, Any]]:
+    # Old dict-creating methods removed; this generator now only returns instances.
+
+    def generate_instances_from_spec(self, nodes: Dict[str, str], chaosd_port: int) -> List[Anomaly]:
         """
-        Generate chaos configurations based on explicit specification in config.
-        
+        Generate fully configured anomaly instances from explicit specification.
+
+        Structure expected under self.chaos_experiments_spec:
+
+        chaos_experiments:
+          pod_level:
+            cpu_stress:
+              count: <int>
+              target_mode: "one_pod"|"all_pods_app"
+              workers: <int>
+              load: <0-100>
+            memory_stress:
+              count: <int>
+              target_mode: "one_pod"|"all_pods_app"
+              size: "<e.g., 512MB>"
+              workers: <int?>
+            pod_failure:
+              count: <int>
+              target_mode: "one_pod"|"all_pods_app"
+          node_level:
+            node_cpu_stress:
+              count: <int>
+              load: <0-100>
+              workers: <int>
+            node_memory_stress:
+              count: <int>
+              size: "<e.g., 512MB>"
+              workers: <int?>
+
+        Args:
+            nodes: Mapping of node name -> host/IP. The selection will be random.
+            chaosd_port: Global Chaosd port used for all nodes.
+
         Returns:
-            List of chaos configurations ready for batch execution
+            List of configured Anomaly instances.
         """
         if not self.chaos_experiments_spec:
             raise ValueError("No chaos_experiments specification found in config")
-        
-        all_configs = []
-        
-        # 1. Pod-level chaos
-        pod_level_spec = self.chaos_experiments_spec.get("pod_level", {})
-        for fault_type, intensities in pod_level_spec.items():
-            for intensity, target_modes in intensities.items():
-                for target_mode, count in target_modes.items():
-                    configs = self._generate_pod_level_chaos(fault_type, intensity, target_mode, count)
-                    all_configs.extend(configs)
-                    # Printing is handled by the batch runner
-        
-        # 2. No failure baselines
-        no_failure_count = self.chaos_experiments_spec.get("no_failure", 0)
-        if no_failure_count > 0:
-            configs = self._generate_no_failure(no_failure_count)
-            all_configs.extend(configs)
-        
-        # Shuffle for random execution order
-        random.shuffle(all_configs)
-        # Printing summary is handled by the batch runner
-        
-        return all_configs
+
+        node_items = list(nodes.items()) if nodes else []
+        all_instances: List[Anomaly] = []
+
+        # --- Pod-level anomalies (Chaos Mesh) ---
+        pod_spec = self.chaos_experiments_spec.get("pod_level", {})
+        if not isinstance(pod_spec, dict):
+            pod_spec = {}
+
+        # cpu_stress
+        pod_cpu = pod_spec.get("cpu_stress", {})
+        try:
+            cnt = int(pod_cpu.get("count", 0))
+        except Exception:
+            cnt = 0
+        if cnt > 0:
+            target_mode = pod_cpu.get("target_mode", "one_pod")
+            workers = pod_cpu.get("workers")
+            load = pod_cpu.get("load")
+            if workers is None or load is None:
+                raise ValueError("pod_level.cpu_stress requires 'workers' and 'load'")
+            if not self.available_apps:
+                raise ValueError("available_deployments is required for pod-level anomalies")
+            for _ in range(cnt):
+                app = random.choice(self.available_apps)
+                inst = PodAnomalyHandler(
+                    namespace=self.namespace,
+                    fault_type="cpu_stress",
+                    target_mode=target_mode,
+                    app=app,
+                    params={"workers": int(workers), "load": int(load)},
+                )
+                all_instances.append(inst)
+
+        # memory_stress
+        pod_mem = pod_spec.get("memory_stress", {})
+        try:
+            cnt = int(pod_mem.get("count", 0))
+        except Exception:
+            cnt = 0
+        if cnt > 0:
+            target_mode = pod_mem.get("target_mode", "one_pod")
+            size = pod_mem.get("size")
+            if size is None:
+                raise ValueError("pod_level.memory_stress requires 'size'")
+            workers_opt = pod_mem.get("workers")
+            if not self.available_apps:
+                raise ValueError("available_deployments is required for pod-level anomalies")
+            for _ in range(cnt):
+                app = random.choice(self.available_apps)
+                params: Dict[str, Any] = {"size": str(size)}
+                if workers_opt is not None:
+                    params["workers"] = int(workers_opt)
+                inst = PodAnomalyHandler(
+                    namespace=self.namespace,
+                    fault_type="memory_stress",
+                    target_mode=target_mode,
+                    app=app,
+                    params=params,
+                )
+                all_instances.append(inst)
+
+        # pod_failure
+        pod_fail = pod_spec.get("pod_failure", {})
+        try:
+            cnt = int(pod_fail.get("count", 0))
+        except Exception:
+            cnt = 0
+        if cnt > 0:
+            target_mode = pod_fail.get("target_mode", "one_pod")
+            if not self.available_apps:
+                raise ValueError("available_deployments is required for pod-level anomalies")
+            for _ in range(cnt):
+                app = random.choice(self.available_apps)
+                inst = PodAnomalyHandler(
+                    namespace=self.namespace,
+                    fault_type="pod_failure",
+                    target_mode=target_mode,
+                    app=app,
+                )
+                all_instances.append(inst)
+
+        # --- Node-level anomalies (Chaosd) ---
+        node_level_spec = self.chaos_experiments_spec.get("node_level", {})
+        if not isinstance(node_level_spec, dict):
+            node_level_spec = {}
+
+        # CPU stress (node-level)
+        cpu_spec = node_level_spec.get("node_cpu_stress", {})
+        try:
+            cpu_count = int(cpu_spec.get("count", 0))
+        except Exception:
+            cpu_count = 0
+        if cpu_count > 0:
+            load = cpu_spec.get("load")
+            workers = cpu_spec.get("workers")
+            if load is None or workers is None:
+                raise ValueError("node_cpu_stress requires 'load' and 'workers'")
+            if not node_items:
+                raise ValueError("nodes mapping is required for node-level anomalies")
+            for _ in range(cpu_count):
+                node_name, node_host = random.choice(node_items)
+                inst = NodeAnomalyHandler(
+                    node_name=node_name,
+                    node_host=node_host,
+                    chaosd_port=chaosd_port,
+                    stress_type="cpu",
+                    params={"load": int(load), "workers": int(workers)},
+                )
+                all_instances.append(inst)
+
+        # Memory stress (node-level)
+        mem_spec = node_level_spec.get("node_memory_stress", {})
+        try:
+            mem_count = int(mem_spec.get("count", 0))
+        except Exception:
+            mem_count = 0
+        if mem_count > 0:
+            size = mem_spec.get("size")
+            if size is None:
+                raise ValueError("node_memory_stress requires 'size' (e.g., '512MB')")
+            workers_opt = mem_spec.get("workers")
+            mem_params: Dict[str, Any] = {"size": str(size)}
+            if workers_opt is not None:
+                mem_params["workers"] = int(workers_opt)
+            if not node_items:
+                raise ValueError("nodes mapping is required for node-level anomalies")
+            for _ in range(mem_count):
+                node_name, node_host = random.choice(node_items)
+                inst = NodeAnomalyHandler(
+                    node_name=node_name,
+                    node_host=node_host,
+                    chaosd_port=chaosd_port,
+                    stress_type="mem",
+                    params=mem_params,
+                )
+                all_instances.append(inst)
+
+        # Shuffle to randomize execution order
+        random.shuffle(all_instances)
+        return all_instances
 
 

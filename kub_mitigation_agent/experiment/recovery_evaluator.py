@@ -11,10 +11,13 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
     """Evaluate if the agent successfully recovered the system to near baseline levels.
     
     Args:
-        phase_metrics: Dict with keys "baseline", "chaos", "recovery" containing metrics
+        phase_metrics: Dict with keys "baseline", optional "chaos", and "recovery" containing metrics
         
     Returns:
-        Dict with success, reason, and metrics_comparison
+        Dict with:
+        - success: bool
+        - reason: str
+        - metrics_comparison: dict of numeric comparisons (includes baseline/chaos/recovery values and ratios)
     """
     if "baseline" not in phase_metrics or "recovery" not in phase_metrics:
         return {
@@ -25,6 +28,7 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
     
     baseline = phase_metrics["baseline"]
     recovery = phase_metrics["recovery"]
+    chaos = phase_metrics.get("chaos")
     
     # Define success thresholds (configurable)
     latency_threshold = 1.3  # Recovery latency should be within 30% of baseline
@@ -36,6 +40,11 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         "baseline_success_rate": baseline["success_rate_percent"],
         "recovery_success_rate": recovery["success_rate_percent"],
     }
+    if chaos and "p95_latency_seconds" in chaos and "success_rate_percent" in chaos:
+        metrics_comparison.update({
+            "chaos_latency_p95": chaos["p95_latency_seconds"],
+            "chaos_success_rate": chaos["success_rate_percent"],
+        })
     
     # Normal mode: compare recovery with baseline
     latency_ratio = recovery["p95_latency_seconds"] / baseline["p95_latency_seconds"] if baseline["p95_latency_seconds"] > 0 else float('inf')
@@ -66,7 +75,7 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "success": success,
         "reason": reason,
-        "metrics_comparison": metrics_comparison
+        "metrics_comparison": metrics_comparison,
     }
 
 

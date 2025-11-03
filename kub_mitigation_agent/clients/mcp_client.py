@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import asyncio
+import subprocess
 import json
 from typing import Any, Dict, Optional
 
@@ -103,4 +104,21 @@ class MCPClient:
                 # This prevents the "event loop is closed" error
                 pass
 
+
+
+def kubectl_ready(timeout: int = 10) -> bool:
+    """Return True if kubectl can reach the cluster and list nodes.
+
+    This utility lives here because MCP manages Kubernetes interactions for the agent.
+    """
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "nodes", "-o", "name", "--request-timeout=5s"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
+        return False
 

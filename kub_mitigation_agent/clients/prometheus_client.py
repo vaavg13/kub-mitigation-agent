@@ -24,6 +24,25 @@ class PrometheusMetricsTool:
             return response.json()
         except Exception:
             return None
+
+    def is_ready(self, timeout: int = 3) -> bool:
+        """Return True if Prometheus HTTP endpoint responds as ready.
+
+        Attempts the standard "/-/ready" probe; falls back to a simple
+        "up" instant query if the probe is unavailable.
+        """
+        try:
+            import requests
+            resp = requests.get(f"{self.prometheus_url}/-/ready", timeout=timeout)
+            if resp.status_code == 200:
+                return True
+            q = requests.get(f"{self.prometheus_url}/api/v1/query", params={"query": "up"}, timeout=timeout)
+            if not q.ok:
+                return False
+            data = q.json()
+            return isinstance(data, dict) and data.get("status") == "success"
+        except Exception:
+            return False
     
     def _parse_duration_to_seconds(self, duration: str) -> int:
         """Parse duration string (e.g., '1h', '30m', '5s') to seconds."""
@@ -470,5 +489,14 @@ def get_prometheus_tool(prometheus_url="http://localhost:9090") -> PrometheusMet
     if _prometheus_tool is None:
         _prometheus_tool = PrometheusMetricsTool(prometheus_url)
     return _prometheus_tool
+
+
+def prometheus_ready(url: str = "http://localhost:9090", timeout: int = 3) -> bool:
+    """Convenience readiness check for Prometheus at the given URL."""
+    try:
+        tool = get_prometheus_tool(prometheus_url=url)
+        return tool.is_ready(timeout=timeout)
+    except Exception:
+        return False
 
 

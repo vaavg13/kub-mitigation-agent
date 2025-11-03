@@ -1,24 +1,28 @@
-# Chaos Experiments Specification
-# This file defines which chaos experiments to run, with explicit counts for each type.
-# Used by all application batch configurations.
-
 chaos_experiments:
   pod_level:
     cpu_stress:
-      extreme:
-        one_pod: 0
-        all_pods_app: 0
-        all_pods_node: 0
+      count: 1
+      target_mode: one_pod
+      workers: 2
+      load: 80
     memory_stress:
-      extreme:
-        one_pod: 0
-        all_pods_app: 0
-        all_pods_node: 0
+      count: 0
+      target_mode: one_pod
+      size: "512MB"
+      workers: 1
     pod_failure:
-      extreme:
-        one_pod: 1
-        all_pods_app: 0
-        all_pods_node: 0
-  
+      count: 0
+      target_mode: one_pod
+
+  node_level:
+    node_cpu_stress:
+      count: 0
+      load: 80
+      workers: 2
+    node_memory_stress:
+      count: 0
+      size: "512MB"
+      workers: 1
+
   no_failure: 0
 

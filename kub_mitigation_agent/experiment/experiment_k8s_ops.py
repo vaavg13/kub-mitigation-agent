@@ -53,8 +53,6 @@ def deploy_fresh_app_sync(experiment_config):
     if not experiment_config["test_settings"]["deploy_fresh_app"]:
         print("Skipping fresh app deployment (disabled in config)")
         return True, ""
-        
-    print(f"\nDeploying fresh application...")
     
     # Use namespace from config to determine app name (e.g., "app-smart-manufacturing")
     app_name = experiment_config["namespace"]

@@ -12,14 +12,6 @@ BATCH_CONFIG:
     delay_between_experiments: 0
     chaos_experiments_file: "./experiment_configs/chaos_experiments_spec.yaml"
 
-  node_resources:
-    k3d-cec-emulator-agent-0: { cpus: "4", memory: "4g" }
-    k3d-cec-emulator-agent-1: { cpus: "4", memory: "4g" }
-    k3d-cec-emulator-agent-2: { cpus: "2", memory: "2g" }
-    k3d-cec-emulator-agent-3: { cpus: "2", memory: "2g" }
-    k3d-cec-emulator-agent-4: { cpus: "2", memory: "2g" }
-    k3d-cec-emulator-agent-5: { cpus: "2", memory: "2g" }
-
   available_deployments:
     - "traffic-sensor-ingest-edge-site-1"
     - "traffic-sensor-ingest-edge-site-2"
@@ -54,5 +46,16 @@ BATCH_CONFIG:
     deploy_fresh_app: true
     cleanup_after_test: true
     pod_ready_timeout: 300
+
+  chaosd:
+    port: 31767
+
+  nodes:
+    cloud-worker-1: "192.168.121.163"
+    cloud-worker-2: "192.168.121.242"
+    edge-worker-1: "192.168.121.9"
+    edge-worker-2: "192.168.121.66"
+    edge-worker-3: "192.168.121.22"
+    edge-worker-4: "192.168.121.12"
 
 
