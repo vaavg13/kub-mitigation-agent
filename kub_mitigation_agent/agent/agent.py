@@ -28,25 +28,15 @@ class KubernetesAgent:
         
         if not self.is_initialized:
             await self.initialize()
-        try:
-            actions, summary = await self._agent.agent_loop(intent, snapshot)
-            if not summary:
-                summary = build_emergency_summary(
-                    actions or [], 
-                    "FAILED - No summary generated", 
-                    ["Execution ended without summary"]
-                )
-            return actions, summary
-        except (Exception,) as e:
-            error_msg = str(e)
-            actions: List[Dict[str, Any]] = []
+        
+        actions, summary = await self._agent.agent_loop(intent, snapshot)
+        if not summary:
             summary = build_emergency_summary(
-                actions, 
-                f"FAILED - {error_msg}", 
-                ["Execution failed due to error"], 
-                error=error_msg
+                actions or [], 
+                "FAILED - No summary generated", 
+                ["Execution ended without summary"]
             )
-            return actions, summary
+        return actions, summary
 
     async def cleanup(self) -> None:
         await self._agent.cleanup()

@@ -84,9 +84,12 @@ class NodeAnomalyHandler(Anomaly):
         return payload
 
     def get_info(self) -> Dict:
+        fault_type = f"node_{self.stress_type}_stress"
         return {
+            "mode": "chaos",
             "provider": "chaosd",
             "type": self.stress_type,
+            "fault_type": fault_type,
             "target": {
                 "name": self.node_name,
                 "host": self.node_host,

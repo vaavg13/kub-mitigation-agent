@@ -83,16 +83,16 @@ class SimpleExperimentLogger:
         started_at = experiment_result.get("started_at")
         completed_at = experiment_result.get("completed_at")
         duration_seconds = experiment_result.get("experiment_duration_seconds")
-        chaos_config = (experiment_result.get("chaos_config") or {}).copy()
-        phase_metrics = experiment_result.get("phase_metrics") or {}
-        agent_actions = experiment_result.get("agent_actions") or []
-        agent_success = bool(experiment_result.get("agent_success"))
-        agent_duration_seconds = experiment_result.get("agent_execution_duration_seconds") or 0
+        chaos_config = experiment_result.get("chaos_config", {})
+        phase_metrics = experiment_result.get("phase_metrics", {})
+        agent_actions = experiment_result.get("agent_actions", [])
+        agent_success = bool(experiment_result.get("agent_success", False))
+        agent_duration_seconds = experiment_result.get("agent_execution_duration_seconds", 0)
         operational_summary = experiment_result.get("operational_summary")
         location_evaluation = experiment_result.get("location_evaluation")
-        experiment_success = bool(experiment_result.get("success"))
-        recovery_successful = bool(experiment_result.get("recovery_successful"))
-        recovery_reason = experiment_result.get("recovery_reason") or ""
+        experiment_success = bool(experiment_result.get("success", False))
+        recovery_successful = bool(experiment_result.get("recovery_successful", False))
+        recovery_reason = experiment_result.get("recovery_reason", "")
         error = experiment_result.get("error")
 
         # Extract phase metrics
@@ -111,7 +111,7 @@ class SimpleExperimentLogger:
             duration_seconds=duration_seconds,
             chaos_config=chaos_config,
             chaos_mode=chaos_config.get("mode", "unknown"),
-            chaos_fault_type=chaos_config.get("fault_type", "unknown"),
+            chaos_fault_type=chaos_config.get("fault_type") or chaos_config.get("type", "unknown"),
             chaos_intensity=str(chaos_config.get("intensity", "unknown")),
             baseline_metrics=self._simplify_metrics(baseline),
             chaos_metrics=self._simplify_metrics(chaos),

@@ -59,7 +59,7 @@ def analyze_experiment(experiment_data: Dict[str, Any]) -> Dict[str, Any]:
     chaos_config = experiment_data.get('chaos_config', {})
     agent_actions = experiment_data.get('agent_actions', [])
     problem_location_data = experiment_data.get('problem_location')
-    mode = chaos_config.get('mode')
+    mode = chaos_config.get('mode', 'unknown')
     experiment_success = experiment_data.get('experiment_success', False)
     namespace = experiment_data.get('namespace', 'N/A')
     num_rounds = len(agent_actions)
@@ -68,18 +68,20 @@ def analyze_experiment(experiment_data: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(problem_location_data, list):
         agent_locations = [loc.get('name') for loc in problem_location_data if loc.get('name')]
 
+    # Extract ground truth using unified anomaly format
     ground_truth_target = None
-    if mode == 'chaos_only':
-        app = chaos_config.get('target_app')
-        ground_truth_target = None if app == 'all_pods_node' else app
+    target = chaos_config.get('target', {})
     
-
-    is_node_wise_chaos = (mode == 'chaos_only' and chaos_config.get('target_app') == 'all_pods_node')
+    if mode == 'chaos':
+        if 'app' in target:
+            # Pod-level chaos
+            ground_truth_target = target.get('app')
+        elif 'name' in target:
+            # Node-level chaos
+            ground_truth_target = target.get('name')
 
     correctness = False
-    if is_node_wise_chaos:
-        correctness = experiment_success
-    elif mode == "no_failure":
+    if mode == "no_failure":
         correctness = agent_took_no_system_changing_actions(agent_actions)
     elif ground_truth_target:
         correctness = any(ground_truth_target in loc for loc in agent_locations)

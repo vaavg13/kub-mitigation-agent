@@ -101,7 +101,7 @@ def evaluate_problem_location_match(
     """Evaluate if agent correctly identified the problem location.
     
     Args:
-        chaos_config: Chaos configuration with mode, fault_type, target info
+        chaos_config: Anomaly info from anomaly.get_info() with mode, provider, type, target
         problem_location: List of dicts with 'name' and 'type' from agent's operational summary
         
     Returns:
@@ -116,7 +116,6 @@ def evaluate_problem_location_match(
     # Handle no_failure mode - no problem to identify
     if mode == "no_failure":
         reported_names = [loc.get("name", "") for loc in (problem_location or [])]
-        # Empty list is correct for baseline (no failure)
         correctly_identified = len(reported_names) == 0 or not any(reported_names)
         
         if correctly_identified:
@@ -126,21 +125,23 @@ def evaluate_problem_location_match(
         
         return {
             "location_identified": correctly_identified,
-            "expected_target": None,  # No target expected for baseline
+            "expected_target": None,
             "reported_locations": reported_names,
             "match_details": match_details
         }
     
-    # Extract expected target based on mode
+    # Extract expected target from the unified anomaly format
+    # Pod-level anomalies: target = {namespace, mode, app}
+    # Node-level anomalies: target = {name, host, port}
     expected_target = None
+    target = chaos_config.get("target", {})
     
-    if mode == "chaos_only":
-        target_mode = chaos_config.get("target_mode", "")
-        if target_mode in ["one_pod", "all_pods_app"]:
-            expected_target = chaos_config.get("target_app")
-        elif target_mode == "all_pods_node":
-            expected_target = chaos_config.get("node_name")
-    
+    if "app" in target:
+        # Pod-level chaos (Chaos Mesh)
+        expected_target = target.get("app")
+    elif "name" in target:
+        # Node-level chaos (Chaosd)
+        expected_target = target.get("name")
     
     # Handle case where we couldn't extract expected target
     if not expected_target:
@@ -148,7 +149,7 @@ def evaluate_problem_location_match(
             "location_identified": False,
             "expected_target": "unknown",
             "reported_locations": [loc.get("name", "") for loc in (problem_location or [])],
-            "match_details": f"Could not determine expected target from chaos config (mode: {mode})"
+            "match_details": f"Could not determine expected target from chaos config (mode: {mode}, provider: {chaos_config.get('provider')})"
         }
     
     # Extract reported locations from agent

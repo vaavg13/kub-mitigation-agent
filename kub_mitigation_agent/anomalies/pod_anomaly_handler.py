@@ -89,18 +89,18 @@ class PodAnomalyHandler(Anomaly):
         return base_template
 
     def get_info(self) -> Dict:
-        info = {
+        return {
+            "mode": "chaos",
             "provider": "chaosmesh",
             "type": self.fault_type,
+            "fault_type": self.fault_type,
             "target": {
                 "namespace": self.namespace,
                 "mode": self.target_mode,
                 "app": self.app,
             },
+            "params": self.params,
         }
-        if self.params:
-            info["params"] = self.params
-        return info
 
     def start(self) -> Dict:
         if self._handle is not None:

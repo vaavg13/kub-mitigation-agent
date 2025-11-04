@@ -73,10 +73,10 @@ class BatchExperimentRunner:
         experiment_config: Dict[str, Any],
         experiment_id: str,
         index: int,
-        anomaly_instance=None,
+        anomaly_instance,
     ) -> Dict[str, Any]:
 
-        ai = anomaly_instance.get_info() if anomaly_instance else {"type": "no_failure"}
+        ai = anomaly_instance.get_info()
 
         print(f"\n{'='*70}")
         print(f"🧪 EXPERIMENT {index + 1}/{len(self.anomalies)}: {experiment_id}")

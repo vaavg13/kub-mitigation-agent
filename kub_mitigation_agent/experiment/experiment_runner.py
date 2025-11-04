@@ -24,22 +24,16 @@ class MitigationExperimentRunner:
         experiment_config: Dict[str, Any],
         experiment_id: Optional[str] = None,
         agent_config: Optional[KubernetesAgentConfig] = None,
-        anomaly: Optional[Anomaly] = None,
+        anomaly: Anomaly = None,
     ):
         self.config = experiment_config
         self.experiment_id = experiment_id
         self.agent_config = agent_config or KubernetesAgentConfig()
         
-        self.anomaly: Optional[Anomaly] = anomaly
+        self.anomaly = anomaly
         self.agent = None
         self.traffic_generator = None
         self.chaos_experiment = None
-        
-        # Cache chaos info from anomaly if available (used in evaluation)
-        try:
-            self.chaos_info: Dict[str, Any] = (self.anomaly.get_info() if self.anomaly else {}) or {}
-        except Exception:
-            self.chaos_info = {}
                 
     async def setup(self):
         self.traffic_generator = LocustTrafficGenerator(self.config["traffic_config"])
@@ -48,11 +42,7 @@ class MitigationExperimentRunner:
             self.agent = KubernetesAgent(self.agent_config)
  
     async def inject_chaos(self) -> bool:
-        """Inject chaos via bound anomaly instance (if any)."""
-        if not self.anomaly:
-            # Treat as no-failure
-            self.chaos_experiment = None
-            return True
+        """Inject chaos via bound anomaly instance."""
         handle = self.anomaly.start()
         self.chaos_experiment = handle
         return True
@@ -115,8 +105,7 @@ class MitigationExperimentRunner:
         # 2. Clean up chaos experiment
         if self.chaos_experiment:
             try:
-                if self.anomaly:
-                    self.anomaly.stop()
+                self.anomaly.stop()
             except Exception as e:
                 print(f"Error cleaning chaos experiment: {e}")
         
@@ -129,15 +118,14 @@ class MitigationExperimentRunner:
 
     def _evaluate_and_report(self, results: Dict[str, Any]) -> None:
         """Compute recovery and location evaluations, update results, and print summary."""
-        # Internals
-        recovery_evaluation = evaluate_metrics_recovery(results["phase_metrics"])  # uses baseline/chaos/recovery
+        recovery_evaluation = evaluate_metrics_recovery(results["phase_metrics"])
         results["recovery_evaluation"] = recovery_evaluation
 
         problem_location = results.get("operational_summary", {}).get("problem_location") if results.get("operational_summary") else None
-        location_evaluation = evaluate_problem_location_match(
-            self.chaos_info,
-            problem_location
-        )
+        
+        # Get chaos config from anomaly for evaluation
+        chaos_config = self.anomaly.get_info()
+        location_evaluation = evaluate_problem_location_match(chaos_config, problem_location)
         results["location_evaluation"] = location_evaluation
 
         # Print

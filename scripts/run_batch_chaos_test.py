@@ -29,7 +29,7 @@ def parse_arguments():
 def load_configs(batch_config_path: Path):
     """Load batch and agent configurations."""
     batch_config = yaml.safe_load(batch_config_path.read_text(encoding="utf-8"))
-    batch_config = batch_config.get("BATCH_CONFIG") or batch_config.get("batch_config") or {}
+    batch_config = batch_config.get("BATCH_CONFIG", batch_config.get("batch_config", {}))
     
     # Load chaos experiments from external file if specified
     chaos_experiments_file = batch_config.get("batch_settings", {}).get("chaos_experiments_file")

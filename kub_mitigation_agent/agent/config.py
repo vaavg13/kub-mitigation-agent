@@ -34,9 +34,9 @@ class KubernetesAgentConfig(BaseModel):
     def from_yaml_dict(cls, y: Dict[str, Any]) -> "KubernetesAgentConfig":
         """Construct config from a nested YAML dict while reading API keys from env."""
         y = y or {}
-        llm = y.get("llm", {}) or {}
-        agent = y.get("agent", {}) or {}
-        mcp = y.get("mcp", {}) or {}
+        llm = y.get("llm", {})
+        agent = y.get("agent", {})
+        mcp = y.get("mcp", {})
 
         server_cmd_raw = mcp.get("server_command")
         if isinstance(server_cmd_raw, list):

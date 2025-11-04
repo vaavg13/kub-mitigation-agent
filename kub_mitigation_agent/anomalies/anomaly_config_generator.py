@@ -10,6 +10,7 @@ from typing import Dict, List, Any
 from .anomaly_base import Anomaly
 from .node_anomaly_handler import NodeAnomalyHandler
 from .pod_anomaly_handler import PodAnomalyHandler
+from .no_failure_anomaly import NoFailureAnomaly
 
 DEFAULT_SEED = 42
 
@@ -47,6 +48,8 @@ class AnomalyConfigGenerator:
         Structure expected under self.chaos_experiments_spec:
 
         chaos_experiments:
+          baseline:
+            count: <int>  # Number of no-failure baseline experiments
           pod_level:
             cpu_stress:
               count: <int>
@@ -83,6 +86,15 @@ class AnomalyConfigGenerator:
 
         node_items = list(nodes.items()) if nodes else []
         all_instances: List[Anomaly] = []
+
+        # --- Baseline (no-failure) experiments ---
+        baseline_spec = self.chaos_experiments_spec.get("baseline", {})
+        try:
+            baseline_count = int(baseline_spec.get("count", 0))
+        except Exception:
+            baseline_count = 0
+        for _ in range(baseline_count):
+            all_instances.append(NoFailureAnomaly())
 
         # --- Pod-level anomalies (Chaos Mesh) ---
         pod_spec = self.chaos_experiments_spec.get("pod_level", {})
