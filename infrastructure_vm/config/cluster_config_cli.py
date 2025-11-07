@@ -86,6 +86,14 @@ def command_node_taints(args) -> None:
             print(f"{name}|{key}|{value}|{effect}")
 
 
+def command_chaosd_targets(args) -> None:
+    data = load_config(args.config)
+    for node in data.get("nodes", []):
+        role = (node.get("role") or "").lower()
+        if role == "chaos-target":
+            print(node["name"])
+
+
 def command_rewrite_kubeconfig(args) -> None:
     source_path = Path(args.source)
     destination_path = Path(args.destination)
@@ -124,6 +132,10 @@ def build_parser() -> argparse.ArgumentParser:
     node_taints_parser = subparsers.add_parser("node-taints", help="Emit node taints as name|key|value|effect")
     node_taints_parser.add_argument("config")
     node_taints_parser.set_defaults(func=command_node_taints)
+
+    chaosd_targets_parser = subparsers.add_parser("chaosd-targets", help="List node names that should run chaosd")
+    chaosd_targets_parser.add_argument("config")
+    chaosd_targets_parser.set_defaults(func=command_chaosd_targets)
 
     rewrite_parser = subparsers.add_parser("rewrite-kubeconfig", help="Rewrite server endpoint in kubeconfig")
     rewrite_parser.add_argument("source")

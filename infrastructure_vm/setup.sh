@@ -42,6 +42,9 @@ KUBECONFIG_DIR="$(dirname "${KUBECONFIG_PATH}")"
 HOST_KUBECONFIG_DIR="${HOME}/.kube"
 HOST_KUBECONFIG_PATH="${HOST_KUBECONFIG_DIR}/config"
 
+CHAOSD_VERSION=$(read_config_value "chaosd.version")
+CHAOSD_PORT=$(read_config_value "chaosd.port")
+
 # Function to print colored output
 print_status() { echo -e "${GREEN}[✓]${NC} $1"; }
 print_error() { echo -e "${RED}[✗]${NC} $1"; }
@@ -75,6 +78,8 @@ fi
 SERVER_IP="${IP_BASE}${SERVER_IP_SUFFIX}"
 
 mapfile -t WORKER_VMS < <("${PYTHON_BIN}" "${CONFIG_CLI}" worker-names "${CLUSTER_CONFIG_FILE}")
+
+mapfile -t CHAOSD_TARGET_NODES < <("${PYTHON_BIN}" "${CONFIG_CLI}" chaosd-targets "${CLUSTER_CONFIG_FILE}")
 
 TOTAL_NODES=${#ALL_NODE_NAMES[@]}
 FIRST_WORKER="${WORKER_VMS[0]:-}"
@@ -196,6 +201,48 @@ start_workers() {
     done
 
     print_status "All worker nodes are ready"
+}
+
+install_chaosd_on_node() {
+    local node="$1"
+    local script_path="${SCRIPT_ABSOLUTE_DIR}/provision/install_chaosd.sh"
+
+    print_info "Installing chaosd on ${node}..."
+
+    if [[ ! -f "${script_path}" ]]; then
+        print_error "Chaosd installer script missing at ${script_path}"
+        return 1
+    fi
+
+    if vagrant_run ssh "${node}" -- -T "sudo env CHAOSD_VERSION=${CHAOSD_VERSION} CHAOSD_PORT=${CHAOSD_PORT} bash -s" < "${script_path}"; then
+        print_status "Chaosd installed on ${node}"
+        return 0
+    else
+        print_error "Chaosd installation failed on ${node}"
+        return 1
+    fi
+}
+
+install_chaosd_targets() {
+    if [[ ${#CHAOSD_TARGET_NODES[@]} -eq 0 ]]; then
+        print_warning "No chaosd target nodes defined"
+        return 0
+    fi
+
+    local failures=0
+    for node in "${CHAOSD_TARGET_NODES[@]}"; do
+        if [[ -z "${node}" ]]; then
+            continue
+        fi
+        install_chaosd_on_node "${node}" || failures=1
+    done
+
+    if [[ ${failures} -ne 0 ]]; then
+        print_error "Chaosd installation encountered errors"
+        exit 1
+    fi
+
+    print_status "Chaosd installed on all target nodes"
 }
 
 ensure_host_tools() {
@@ -385,6 +432,7 @@ COMMANDS:
     verify              Verify cluster status
     monitoring-install  Install monitoring/observability stack on the cluster
     chaos-mesh-install [args]  Install Chaos Mesh (arguments are forwarded to installer)
+    chaosd-install       Install or update chaosd on target nodes
     kubeconfig-copy      Print kubeconfig contents to stdout
     clean               Destroy all VMs and remove network
     help                Show this help message
@@ -434,6 +482,7 @@ full_setup() {
     create_network
     start_server
     start_workers
+    install_chaosd_targets
     prepare_cluster_context
     apply_node_metadata
     verify_cluster
@@ -477,6 +526,9 @@ main() {
             shift || true
             prepare_cluster_context
             install_chaos_mesh_host "$@"
+            ;;
+        chaosd-install)
+            install_chaosd_targets
             ;;
         kubeconfig-copy)
             copy_kubeconfig_to_home

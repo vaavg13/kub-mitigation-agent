@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 29,
+  "id": 1,
   "links": [],
   "panels": [
     {
@@ -666,7 +666,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (node) (rate(container_cpu_usage_seconds_total{image!=\"\",container!=\"POD\"}[1m]))",
+          "expr": "sum by (node) (rate(container_cpu_usage_seconds_total{image!=\"\",container!=\"POD\", node=~\"$node\"}[1m]))",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -765,7 +765,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "label_replace(\n  100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100),\n  \"internal_ip\", \"$1\", \"instance\", \"^([^:]+):.*$\"\n)\n* on (internal_ip) group_left (node)\nkube_node_info\n",
+          "expr": "label_replace(\n  100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100),\n  \"internal_ip\", \"$1\", \"instance\", \"^([^:]+):.*$\"\n)\n* on (internal_ip) group_left (node)\nkube_node_info{node=~\"$node\"}\n",
           "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
@@ -860,7 +860,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "label_replace(\n  1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes),\n  \"internal_ip\", \"$1\", \"instance\", \"^([^:]+):.*$\"\n)\n* on (internal_ip) group_left (node)\nkube_node_info",
+          "expr": "label_replace(\n  1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes),\n  \"internal_ip\", \"$1\", \"instance\", \"^([^:]+):.*$\"\n)\n* on (internal_ip) group_left (node)\nkube_node_info{node=~\"$node\"}",
           "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
@@ -1307,6 +1307,30 @@
         "options": [],
         "query": "label_values(kube_pod_info{namespace=\"$namespace\"}, pod)",
         "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allowCustomValue": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(kube_node_info, node)",
+        "includeAll": true,
+        "label": "node",
+        "name": "node",
+        "options": [],
+        "query": {
+          "qryType": 5,
+          "query": "label_values(kube_node_info, node)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
         "type": "query"
       }
     ]

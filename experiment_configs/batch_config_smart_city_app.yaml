@@ -51,11 +51,11 @@ BATCH_CONFIG:
     port: 31767
 
   nodes:
-    cloud-worker-1: "192.168.121.89"
-    cloud-worker-2: "192.168.121.85"
-    edge-worker-1: "192.168.121.93"
-    edge-worker-2: "192.168.121.110"
-    edge-worker-3: "192.168.121.92"
-    edge-worker-4: "192.168.121.137"
+    cloud-worker-1: "192.168.100.21"
+    cloud-worker-2: "192.168.100.22"
+    edge-site-1-worker-1: "192.168.100.23"
+    edge-site-1-worker-2: "192.168.100.24"
+    edge-site-2-worker-1: "192.168.100.25"
+    edge-site-2-worker-2: "192.168.100.26"
 
 

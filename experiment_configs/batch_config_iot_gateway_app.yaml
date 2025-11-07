@@ -39,7 +39,7 @@ BATCH_CONFIG:
   nodes:
     cloud-worker-1: "192.168.100.21"
     cloud-worker-2: "192.168.100.22"
-    edge-site-1-worker-1: "192.168.100.93"
-    edge-site-1-worker-2: "192.168.100.110"
-    edge-site-2-worker-1: "192.168.100.92"
-    edge-site-2-worker-2: "192.168.100.137"
+    edge-site-1-worker-1: "192.168.100.23"
+    edge-site-1-worker-2: "192.168.100.24"
+    edge-site-2-worker-1: "192.168.100.25"
+    edge-site-2-worker-2: "192.168.100.26"
