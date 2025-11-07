@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 0,
+  "id": 29,
   "links": [],
   "panels": [
     {
@@ -33,65 +33,6 @@
       "panels": [],
       "title": "Agent Overview",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "$DS_PROMETHEUS"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 1
-      },
-      "id": 2,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.2.0",
-      "targets": [
-        {
-          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"$pod\"}[1h]))",
-          "legendFormat": "{{pod}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Pod Restarts (last 1h)",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -157,8 +98,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 9,
-        "x": 6,
+        "w": 24,
+        "x": 0,
         "y": 1
       },
       "id": 3,
@@ -175,11 +116,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", image!=\"\", pod=~\"$pod\"}[5m]))",
+          "editorMode": "code",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", image!=\"\", pod=~\"$pod\"}[1m]))",
           "legendFormat": "{{pod}}",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -249,10 +192,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 9,
-        "x": 15,
-        "y": 1
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 9
       },
       "id": 4,
       "options": {
@@ -268,7 +211,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"$namespace\", image!=\"\", pod=~\"$pod\"})",
@@ -304,10 +247,69 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 7,
+        "w": 16,
         "x": 0,
-        "y": 5
+        "y": 16
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.2.1",
+      "targets": [
+        {
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"$pod\"}[1h]))",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Pod Restarts (last 1h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$DS_PROMETHEUS"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 16
       },
       "id": 15,
       "options": {
@@ -327,7 +329,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "sum(kube_pod_container_status_waiting_reason{namespace=\"$namespace\", reason=\"CrashLoopBackOff\"})",
@@ -344,7 +346,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 9
+        "y": 23
       },
       "id": 5,
       "panels": [],
@@ -410,13 +412,38 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "iot-device-gateway-edge-site-1.app-iot-gateway.svc.cluster.local"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": true,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 7,
-        "w": 12,
+        "w": 24,
         "x": 0,
-        "y": 10
+        "y": 24
       },
       "id": 6,
       "options": {
@@ -432,7 +459,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "sum( rate(istio_requests_total{reporter=\"source\",source_workload=\"istio-ingressgateway\",source_workload_namespace=\"istio-system\"}[1m]) )",
@@ -512,9 +539,9 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 10
+        "w": 24,
+        "x": 0,
+        "y": 31
       },
       "id": 7,
       "options": {
@@ -530,7 +557,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le) ( rate(istio_request_duration_milliseconds_bucket{reporter=\"source\",source_workload=\"istio-ingressgateway\",source_workload_namespace=\"istio-system\"}[1m]) ) ) / 1000",
@@ -547,7 +574,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 38
       },
       "id": 8,
       "panels": [],
@@ -585,8 +612,7 @@
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
-              "log": 2,
-              "type": "log"
+              "type": "linear"
             },
             "showPoints": "auto",
             "showValues": false,
@@ -612,8 +638,7 @@
                 "value": 80
               }
             ]
-          },
-          "unit": "percentunit"
+          }
         },
         "overrides": []
       },
@@ -621,7 +646,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 39
       },
       "id": 16,
       "options": {
@@ -637,11 +662,11 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (node) (rate(container_cpu_usage_seconds_total{image!=\"\",container!=\"POD\"}[2m]))",
+          "expr": "sum by (node) (rate(container_cpu_usage_seconds_total{image!=\"\",container!=\"POD\"}[1m]))",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -681,171 +706,6 @@
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
-              "log": 2,
-              "type": "log"
-            },
-            "showPoints": "auto",
-            "showValues": false,
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 27
-      },
-      "id": 21,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.2.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cpu=~\"16|17|40|41\"}[1m]))",
-          "format": "time_series",
-          "legendFormat": "node-0-cloud",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cpu=~\"18|19|42|43\"}[1m]))",
-          "hide": false,
-          "legendFormat": "node-1-cloud",
-          "range": true,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cpu=~\"20|44\"}[1m]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "node-2-edge",
-          "range": true,
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cpu=~\"21|45\"}[1m]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "node-3-edge",
-          "range": true,
-          "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cpu=~\"22|46\"}[1m]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "node-4-edge",
-          "range": true,
-          "refId": "E"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cpu=~\"23|47\"}[1m]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "node-5-edge",
-          "range": true,
-          "refId": "F"
-        }
-      ],
-      "title": "real note workload",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "auto",
@@ -872,7 +732,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -880,7 +741,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 48
       },
       "id": 22,
       "options": {
@@ -896,7 +757,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "datasource": {
@@ -904,13 +765,13 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)\n",
-          "legendFormat": "__auto",
+          "expr": "label_replace(\n  100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100),\n  \"internal_ip\", \"$1\", \"instance\", \"^([^:]+):.*$\"\n)\n* on (internal_ip) group_left (node)\nkube_node_info\n",
+          "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "proc/stat",
+      "title": "Node CPU non-idle time",
       "type": "timeseries"
     },
     {
@@ -979,7 +840,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 56
       },
       "id": 10,
       "options": {
@@ -995,11 +856,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
-          "expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
-          "legendFormat": "{{instance}}",
+          "editorMode": "code",
+          "expr": "label_replace(\n  1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes),\n  \"internal_ip\", \"$1\", \"instance\", \"^([^:]+):.*$\"\n)\n* on (internal_ip) group_left (node)\nkube_node_info",
+          "legendFormat": "{{node}}",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -1012,7 +875,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 64
       },
       "id": 12,
       "panels": [],
@@ -1084,7 +947,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 52
+        "y": 65
       },
       "id": 13,
       "options": {
@@ -1100,7 +963,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "sum by (destination_workload, destination_workload_namespace) ( rate(istio_requests_total{reporter=\"destination\"}[1m]) )",
@@ -1177,7 +1040,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 65
       },
       "id": 14,
       "options": {
@@ -1193,7 +1056,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le, destination_workload, destination_workload_namespace) ( rate(istio_request_duration_milliseconds_bucket{reporter=\"destination\"}[1m]) ) ) / 1000",
@@ -1270,7 +1133,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 59
+        "y": 72
       },
       "id": 19,
       "options": {
@@ -1286,7 +1149,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "sum(rate(istio_requests_total{reporter=\"source\",source_workload=\"istio-ingressgateway\",source_workload_namespace=\"istio-system\",response_code=~\"2..|3..\"}[1m])) / sum(rate(istio_requests_total{reporter=\"source\",source_workload=\"istio-ingressgateway\",source_workload_namespace=\"istio-system\"}[1m]))",
@@ -1363,7 +1226,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 59
+        "y": 72
       },
       "id": 20,
       "options": {
@@ -1379,7 +1242,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.2.0",
+      "pluginVersion": "12.2.1",
       "targets": [
         {
           "expr": "sum by (destination_workload, destination_workload_namespace) (rate(istio_requests_total{reporter=\"destination\",response_code=~\"2..|3..\"}[1m])) / sum by (destination_workload, destination_workload_namespace) (rate(istio_requests_total{reporter=\"destination\"}[1m]))",
@@ -1414,8 +1277,8 @@
       },
       {
         "current": {
-          "text": "kube-system",
-          "value": "kube-system"
+          "text": "",
+          "value": ""
         },
         "datasource": {
           "type": "prometheus",
@@ -1431,9 +1294,7 @@
       {
         "current": {
           "text": "All",
-          "value": [
-            "$__all"
-          ]
+          "value": "$__all"
         },
         "datasource": {
           "type": "prometheus",
@@ -1451,7 +1312,7 @@
     ]
   },
   "time": {
-    "from": "now-3h",
+    "from": "now-30m",
     "to": "now"
   },
   "timepicker": {
@@ -1472,5 +1333,5 @@
   "timezone": "",
   "title": "agetnt",
   "uid": "agent",
-  "version": 8
+  "version": 1
 }

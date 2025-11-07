@@ -1,0 +1,142 @@
+{
+  "network": {
+    "name": "k3s-net",
+    "bridge": "virbr-k3s",
+    "gateway": "192.168.100.1",
+    "mask": "255.255.255.0",
+    "dhcp_start": "192.168.100.100",
+    "dhcp_end": "192.168.100.254",
+    "ip_base": "192.168.100."
+  },
+  "kubeconfig": {
+    "path": "~/kube/config"
+  },
+  "chaosd": {
+    "version": "v1.0.0",
+    "port": 31767
+  },
+  "addons": {
+    "monitoring": {
+      "enabled": true,
+      "script": "addons/install_monitoring.sh"
+    },
+    "chaos_mesh": {
+      "enabled": true,
+      "script": "addons/install_chaos_mesh.sh",
+      "args": ["--skip-test"]
+    }
+  },
+  "nodes": [
+    {
+      "name": "k3s-server",
+      "role": "server",
+      "cpus": 2,
+      "memory": 2048,
+      "ip_suffix": 10,
+      "cpuset": [],
+      "primary": true,
+      "autostart": true,
+      "labels": {
+        "node-role.kubernetes.io/control-plane": "true"
+      },
+      "taints": []
+    },
+    {
+      "name": "system-services",
+      "role": "system-services",
+      "cpus": 6,
+      "memory": 8192,
+      "ip_suffix": 20,
+      "cpuset": [],
+      "labels": {
+        "kub-mitigation/system-services": "true"
+      },
+      "taints": [
+        {
+          "key": "kub-mitigation/system-services",
+          "value": "true",
+          "effect": "NoSchedule"
+        }
+      ]
+    },
+    {
+      "name": "cloud-worker-1",
+      "role": "chaos-target",
+      "cpus": 4,
+      "memory": 4096,
+      "ip_suffix": 21,
+      "cpuset": [16, 40, 17, 41],
+      "labels": {
+        "topology.kubernetes.io/zone": "cloud",
+        "kub-mitigation/chaos-target": "true"
+      },
+      "taints": []
+    },
+    {
+      "name": "cloud-worker-2",
+      "role": "chaos-target",
+      "cpus": 4,
+      "memory": 4096,
+      "ip_suffix": 22,
+      "cpuset": [18, 42, 19, 43],
+      "labels": {
+        "topology.kubernetes.io/zone": "cloud",
+        "kub-mitigation/chaos-target": "true"
+      },
+      "taints": []
+    },
+    {
+      "name": "edge-site-1-worker-1",
+      "role": "chaos-target",
+      "cpus": 2,
+      "memory": 2048,
+      "ip_suffix": 23,
+      "cpuset": [20, 44],
+      "labels": {
+        "topology.kubernetes.io/zone": "edge-site-1",
+        "kub-mitigation/chaos-target": "true"
+      },
+      "taints": []
+    },
+    {
+      "name": "edge-site-1-worker-2",
+      "role": "chaos-target",
+      "cpus": 2,
+      "memory": 2048,
+      "ip_suffix": 24,
+      "cpuset": [21, 45],
+      "labels": {
+        "topology.kubernetes.io/zone": "edge-site-1",
+        "kub-mitigation/chaos-target": "true"
+      },
+      "taints": []
+    },
+    {
+      "name": "edge-site-2-worker-1",
+      "role": "chaos-target",
+      "cpus": 2,
+      "memory": 2048,
+      "ip_suffix": 25,
+      "cpuset": [22, 46],
+      "labels": {
+        "topology.kubernetes.io/zone": "edge-site-2",
+        "kub-mitigation/chaos-target": "true"
+      },
+      "taints": []
+    },
+    {
+      "name": "edge-site-2-worker-2",
+      "role": "chaos-target",
+      "cpus": 2,
+      "memory": 2048,
+      "ip_suffix": 26,
+      "cpuset": [23, 47],
+      "labels": {
+        "topology.kubernetes.io/zone": "edge-site-2",
+        "kub-mitigation/chaos-target": "true"
+      },
+      "taints": []
+    }
+  ]
+}
+

@@ -1,10 +1,10 @@
 chaos_experiments:
   pod_level:
     cpu_stress:
-      count: 1
+      count: 0
       target_mode: one_pod
       workers: 2
-      load: 80
+      load: 90
     memory_stress:
       count: 0
       target_mode: one_pod
@@ -16,9 +16,9 @@ chaos_experiments:
 
   node_level:
     node_cpu_stress:
-      count: 0
-      load: 80
-      workers: 2
+      count: 1
+      load: 100
+      workers: 6
     node_memory_stress:
       count: 0
       size: "512MB"

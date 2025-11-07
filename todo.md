@@ -325,3 +325,41 @@ available_deployments:
     "description": "CPU underprovisioning on iot-gateway-edge-site-1 (high)"
 }
 ```
+
+---
+
+## Infrastructure VM Streamlining (K3s Cluster)
+
+### Objectives
+- Limit Vagrant usage to VM lifecycle (up/halt/destroy/status) and rely on host `kubectl`/`bash` for cluster management.
+- Speed up provisioning by caching k3s installer artifacts and parallelizing worker start-up.
+- Provide a reproducible host kubeconfig and centralized node inventory for easier resource management.
+
+### Plan of Action
+1. **Artifact Caching**
+   - Add `infrastructure_vm/cache/install-k3s.sh` (ignored by git) downloaded once via `curl`.
+   - Provision cached installer into all VMs (server/workers) through Vagrant file provisioner or synced folder.
+   - Update provisioning scripts to execute the cached installer instead of fetching from the internet each time.
+2. **Host-Facing kubeconfig**
+   - After `k3s-server` is up, copy `/etc/rancher/k3s/k3s.yaml` via `scp` using the Vagrant insecure key.
+   - Replace `127.0.0.1` with `https://192.168.100.10:6443` and persist to `~/.kube/config` (with backup if needed).
+   - Export `KUBECONFIG` for subsequent script steps so all `kubectl` commands run on the host.
+3. **Script Refactors (`setup.sh`)**
+   - Drop `vagrant ssh` wrappers; add generic `ssh_vm`, `scp_vm` helpers using static IPs.
+   - Require `kubectl` on host; run labeling, monitoring install, chaos-mesh install, and verification locally.
+   - Remove output suppression (`2>/dev/null`) to keep logs complete.
+   - Keep Chaosd management using SSH (exception per requirements).
+4. **Parallel Worker Start**
+   - Call `vagrant up --parallel` for the worker pool once the server is ready.
+   - Ensure worker provisioning uses the cached installer and waits on the server token via shared/synced path.
+5. **Node Inventory File**
+   - Create `infrastructure_vm/nodes.yml` describing each VM (name, role, IP, CPUs, memory, optional CPU pinning).
+   - Use this manifest in both `setup.sh` (dynamic lists) and `Vagrantfile` (looped VM definitions, libvirt CPU pin directives if supported).
+6. **Prerequisite Checks**
+   - Add validation for required host binaries (`kubectl`, `ssh`, `scp`, `curl`, `virsh`, `vagrant`).
+   - Fail fast with descriptive messages if any are missing.
+
+### Open Decisions
+- Confirm final kubeconfig destination (`~/.kube/config` vs `kube/config`).
+- Decide whether CPU pinning should be actively applied or just documented in `nodes.yml`.
+- Determine if additional installer assets (agent binaries, token files) should be cached alongside `install-k3s.sh`.

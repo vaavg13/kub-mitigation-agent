@@ -1,0 +1,51 @@
+prometheus:
+  prometheusSpec:
+    nodeSelector:
+      kub-mitigation/system-services: "true"
+    tolerations:
+      - key: kub-mitigation/system-services
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector:
+      kub-mitigation/system-services: "true"
+    tolerations:
+      - key: kub-mitigation/system-services
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+
+grafana:
+  nodeSelector:
+    kub-mitigation/system-services: "true"
+  tolerations:
+    - key: kub-mitigation/system-services
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+
+prometheusOperator:
+  nodeSelector:
+    kub-mitigation/system-services: "true"
+  tolerations:
+    - key: kub-mitigation/system-services
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+
+kubeStateMetrics:
+  nodeSelector:
+    kub-mitigation/system-services: "true"
+  tolerations:
+    - key: kub-mitigation/system-services
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+

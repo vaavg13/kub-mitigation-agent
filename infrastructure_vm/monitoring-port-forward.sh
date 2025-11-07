@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Assumes kubectl is configured on host
-
 # Grafana
 nohup kubectl -n monitoring port-forward svc/prometheus-grafana 3001:80 --address 127.0.0.1 \
   >/dev/null 2>&1 & echo $! > /tmp/grafana-port-forward.pid

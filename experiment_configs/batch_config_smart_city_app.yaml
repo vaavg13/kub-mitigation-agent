@@ -32,7 +32,7 @@ BATCH_CONFIG:
     - "reporting-planning-tools-cloud"
 
   traffic_config:
-    host: "http://172.23.0.5:30435"
+    host: "http://172.23.0.5:30420"
     endpoints:
       - "/traffic-sensor-ingest-edge-site-1"
       - "/traffic-sensor-ingest-edge-site-2"
@@ -51,11 +51,11 @@ BATCH_CONFIG:
     port: 31767
 
   nodes:
-    cloud-worker-1: "192.168.121.163"
-    cloud-worker-2: "192.168.121.242"
-    edge-worker-1: "192.168.121.9"
-    edge-worker-2: "192.168.121.66"
-    edge-worker-3: "192.168.121.22"
-    edge-worker-4: "192.168.121.12"
+    cloud-worker-1: "192.168.121.89"
+    cloud-worker-2: "192.168.121.85"
+    edge-worker-1: "192.168.121.93"
+    edge-worker-2: "192.168.121.110"
+    edge-worker-3: "192.168.121.92"
+    edge-worker-4: "192.168.121.137"
 
 
