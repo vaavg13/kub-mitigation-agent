@@ -12,7 +12,7 @@ from .node_anomaly_handler import NodeAnomalyHandler
 from .pod_anomaly_handler import PodAnomalyHandler
 from .no_failure_anomaly import NoFailureAnomaly
 
-DEFAULT_SEED = 42
+DEFAULT_SEED = 420
 
 
 class AnomalyConfigGenerator:

@@ -80,20 +80,64 @@ class MitigationExperimentRunner:
         self, 
         baseline_metrics: Dict[str, Any],
         current_metrics: Dict[str, Any]
-    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], bool]:
+    ) -> tuple[List[Dict[str, Any]], List[Any], Optional[Dict[str, Any]], bool]:
+        """
+        Deploy the mitigation agent.
+        
+        Returns:
+            Tuple of (actions, trace, summary, success)
+            - actions: Legacy list of action dicts
+            - trace: Complete agent trace with thought-action-observation
+            - summary: Operational summary
+            - success: Whether agent completed successfully
+        """
+        from kub_mitigation_agent.agent.agent_utils import build_emergency_summary
+        
         if not self.agent.is_initialized:
             await self.agent.initialize()
         
         # Build intent and snapshot from traffic generator metrics
         intent, snapshot = self._prepare_agent_inputs(baseline_metrics, current_metrics)
         
-        # Run agent - let exceptions propagate
-        actions, summary = await self.agent.agent_loop(intent, snapshot)
-        return actions, summary, True
+        try:
+            # Run agent
+            actions, trace, summary = await self.agent.agent_loop(intent, snapshot)
+            return actions, trace, summary, True
+            
+        except Exception as e:
+            # Catch any agent errors - the agent should have already built an emergency summary
+            # and returned partial trace if possible
+            error_name = type(e).__name__
+            
+            # Check if agent already handled it and returned partial results
+            # (GraphRecursionError is handled in react_agent.py and returns partial trace)
+            if error_name == "GraphRecursionError":
+                # Agent should have already returned partial trace/summary, but let's verify
+                print(f"⚠️  Agent hit recursion limit - should have partial trace")
+                # This shouldn't actually be reached because react_agent.py catches it
+                # But if it does reach here, we have no trace to return
+                
+            print(f"⚠️  Agent execution failed with {error_name}: {str(e)}")
+            
+            # For KeyboardInterrupt, re-raise so it propagates properly
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            
+            # For other exceptions, return empty trace and emergency summary
+            from kub_mitigation_agent.agent.agent_utils import build_emergency_summary
+            emergency_summary = build_emergency_summary(
+                [],
+                f"ERROR - {error_name}",
+                [f"Agent execution failed: {str(e)}"],
+                error=f"{error_name}: {str(e)}"
+            )
+            
+            return [], [], emergency_summary, False
 
 
     async def cleanup_all(self):
         """Clean up all experiment resources."""
+        from kub_mitigation_agent.anomalies import cleanup_all_anomalies
         
         # 1. Stop traffic generation
         if self.traffic_generator:
@@ -102,14 +146,28 @@ class MitigationExperimentRunner:
             except Exception as e:
                 print(f"Error stopping traffic: {e}")
         
-        # 2. Clean up chaos experiment
+        # 2. Clean up chaos experiment (specific anomaly)
         if self.chaos_experiment:
             try:
                 self.anomaly.stop()
             except Exception as e:
                 print(f"Error cleaning chaos experiment: {e}")
         
-        # 3. Clean up agent
+        # 3. Clean ALL anomalies (comprehensive cleanup)
+        try:
+            namespace = self.config.get("namespace")
+            nodes = self.config.get("nodes", {})
+            chaosd_port = self.config.get("chaosd_port", 31767)
+            
+            cleanup_all_anomalies(
+                namespaces=[namespace] if namespace else None,
+                nodes=nodes if nodes else None,
+                chaosd_port=chaosd_port
+            )
+        except Exception as e:
+            print(f"Error in comprehensive anomaly cleanup: {e}")
+        
+        # 4. Clean up agent
         if self.agent:
             try:
                 await self.agent.cleanup()
@@ -121,47 +179,32 @@ class MitigationExperimentRunner:
         recovery_evaluation = evaluate_metrics_recovery(results["phase_metrics"])
         results["recovery_evaluation"] = recovery_evaluation
 
-        problem_location = results.get("operational_summary", {}).get("problem_location") if results.get("operational_summary") else None
+        operational_summary = results.get("operational_summary")
+        problem_location = operational_summary.get("problem_location") if operational_summary else None
         
-        # Get chaos config from anomaly for evaluation
         chaos_config = self.anomaly.get_info()
         location_evaluation = evaluate_problem_location_match(chaos_config, problem_location)
         results["location_evaluation"] = location_evaluation
 
-        # Print
-        cmp = recovery_evaluation.get("metrics_comparison", {})
-        chaos_sr = cmp.get("chaos_success_rate")
-        chaos_p95 = cmp.get("chaos_latency_p95")
-        if isinstance(chaos_sr, (int, float)) and isinstance(chaos_p95, (int, float)):
-            print(f"  📊 Chaos: {chaos_sr:.1f}% success, P95: {chaos_p95:.3f}s")
+        # Print metrics comparison: Baseline → Chaos → Recovery
+        cmp = recovery_evaluation["metrics_comparison"]
+        print(f"  📊 Baseline: {cmp['baseline_success_rate']:.1f}% success, P95: {cmp['baseline_latency_p95']:.3f}s")
+        if "chaos_success_rate" in cmp:
+            print(f"  📊 Chaos: {cmp['chaos_success_rate']:.1f}% success, P95: {cmp['chaos_latency_p95']:.3f}s")
+        print(f"  📊 Recovery: {cmp['recovery_success_rate']:.1f}% success, P95: {cmp['recovery_latency_p95']:.3f}s")
 
-        base_sr = cmp.get("baseline_success_rate")
-        base_p95 = cmp.get("baseline_latency_p95")
-        rec_sr = cmp.get("recovery_success_rate")
-        rec_p95 = cmp.get("recovery_latency_p95")
-        if isinstance(base_sr, (int, float)) and isinstance(base_p95, (int, float)):
-            print(f"  📊 Baseline: {base_sr:.1f}% success, P95: {base_p95:.3f}s")
-        if isinstance(rec_sr, (int, float)) and isinstance(rec_p95, (int, float)):
-            print(f"  📊 Recovery: {rec_sr:.1f}% success, P95: {rec_p95:.3f}s")
-
-        lr = cmp.get("latency_ratio")
-        sd = cmp.get("success_rate_diff")
-        ok = bool(recovery_evaluation.get("success"))
-        status_label = "within baseline range" if ok else "outside baseline range"
+        # Print recovery evaluation
+        ok = recovery_evaluation["success"]
+        status = "within baseline range" if ok else "outside baseline range"
         emoji = "✅" if ok else "❌"
-        if isinstance(lr, (int, float)) and isinstance(sd, (int, float)):
-            print(f"  📈 Recovery evaluation: {emoji} {status_label} (latency {lr:.2f}x baseline, success ±{sd:.1f}% vs baseline)")
-        else:
-            print(f"  📈 Recovery evaluation: {emoji} {status_label}")
+        print(f"  📈 Recovery evaluation: {emoji} {status} (latency {cmp['latency_ratio']:.2f}x baseline, success ±{cmp['success_rate_diff']:.1f}% vs baseline)")
 
-        expected_target = location_evaluation.get('expected_target')
-        expected_label = expected_target if expected_target is not None else "none"
-        reported_locations = location_evaluation.get('reported_locations') or []
-        if isinstance(reported_locations, list):
-            reported_label = ", ".join([str(x) for x in reported_locations]) if reported_locations else "none"
-        else:
-            reported_label = str(reported_locations)
-        result_emoji = "✅" if location_evaluation.get("location_identified") else "❌"
+        # Print problem location evaluation
+        expected = location_evaluation["expected_target"]
+        expected_label = expected if expected is not None else "none"
+        reported = location_evaluation["reported_locations"]
+        reported_label = ", ".join(reported) if reported else "none"
+        result_emoji = "✅" if location_evaluation["location_identified"] else "❌"
         print(f"  🎯 Problem location: expected={expected_label}; agent={reported_label}; result={result_emoji}")
 
     async def run_full_experiment(self) -> Dict[str, Any]:
@@ -169,6 +212,7 @@ class MitigationExperimentRunner:
         results = {
             "success": False,
             "agent_actions": [],
+            "agent_trace": [],
             "error": None,
             "interrupted": False,
             "phase_metrics": {},
@@ -225,18 +269,40 @@ class MitigationExperimentRunner:
                 print(f"\n▶ Agent execution (chaos active)")
                 agent_execution_start_time = time.time()
 
-                # Deploy agent
-                agent_actions, operational_summary, agent_success = await self.deploy_mitigation_agent(
-                    baseline_metrics, 
-                    chaos_metrics
-                )
+                try:
+                    # Deploy agent
+                    agent_actions, agent_trace, operational_summary, agent_success = await self.deploy_mitigation_agent(
+                        baseline_metrics, 
+                        chaos_metrics
+                    )
 
-                # Store agent execution results
-                results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
-                results["agent_actions"] = agent_actions
-                results["agent_success"] = agent_success
-                results["operational_summary"] = operational_summary
-                results["problem_location"] = operational_summary.get("problem_location", []) if operational_summary else []
+                    # Store agent execution results
+                    results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
+                    results["agent_actions"] = agent_actions
+                    results["agent_trace"] = agent_trace
+                    results["agent_success"] = agent_success
+                    results["operational_summary"] = operational_summary
+                    results["problem_location"] = operational_summary.get("problem_location", []) if operational_summary else []
+                    
+                except KeyboardInterrupt:
+                    # User interrupted during agent execution - preserve partial trace
+                    print(f"\n⚠️  Agent execution interrupted by user (Ctrl+C)")
+                    results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
+                    results["interrupted"] = True
+                    results["error"] = "Agent execution interrupted by user (Ctrl+C)"
+                    # Note: agent_trace should already be populated if agent started
+                    # Re-raise to let outer handler deal with cleanup
+                    raise
+                
+                except Exception as e:
+                    # Agent failed but experiment continues - we still want recovery metrics
+                    print(f"\n❌ Agent execution failed: {e}")
+                    results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
+                    results["agent_success"] = False
+                    results["error"] = f"Agent execution failed: {str(e)}"
+                    logger.exception("Agent execution failed, but continuing with recovery metrics")
+                    # Don't raise - continue to recovery phase
+                    
             else:
                 print(f"\n▶ Agent execution: DISABLED (baseline-chaos-recovery mode)")
             
@@ -246,11 +312,8 @@ class MitigationExperimentRunner:
             
             recovery_metrics = collect_istio_ingress_metrics(self.config["recovery_duration"])
             results["phase_metrics"]["recovery"] = recovery_metrics
-            print(f"  🩹 Recovery: {recovery_metrics['success_rate_percent']:.1f}% success, "
-                f"P95: {recovery_metrics['p95_latency_seconds']:.3f}s"
-            )
 
-            # Evaluate and print via helper
+            # Evaluate and report all metrics
             self._evaluate_and_report(results)
             
             # === CLEANUP AND FINAL METRICS ===
@@ -266,6 +329,15 @@ class MitigationExperimentRunner:
             
             return results
             
+        except KeyboardInterrupt:
+            # Experiment interrupted by user - mark as interrupted and preserve all data collected so far
+            results["interrupted"] = True
+            if not results.get("error"):
+                results["error"] = "Experiment interrupted by user (Ctrl+C)"
+            print(f"\n⚠️  Experiment interrupted - saving partial results and trace")
+            # Re-raise to let batch runner handle it
+            raise
+            
         except Exception as e:
             results["error"] = str(e)
             print(f"\nTest failed: {e}")
@@ -274,5 +346,5 @@ class MitigationExperimentRunner:
         
         finally:
             # Always cleanup (but skip if already cleaned in success path)
-            if results.get("error"):
+            if results.get("error") or results.get("interrupted"):
                 await self.cleanup_all()

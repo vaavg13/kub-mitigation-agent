@@ -7,9 +7,12 @@ import asyncio
 import os
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional, TypedDict
+from dataclasses import dataclass, asdict
 
 from langgraph.graph import END, StateGraph
+from langgraph.errors import GraphRecursionError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from .config import KubernetesAgentConfig
@@ -17,17 +20,30 @@ from .llm_provider import get_llm
 from .system_prompt import get_system_prompt
 from kub_mitigation_agent.clients.mcp_client import MCPClient
 from .tools import ALL_TOOLS, set_mcp_client, set_warmup_end_timestamp
-from .agent_utils import log_thought_action_observation
+from .agent_utils import log_thought_action_observation, build_emergency_summary
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AgentTraceStep:
+    """Single step in agent execution trace: Thought -> Action -> Observation"""
+    step_number: int
+    thought: Optional[str]
+    action: str
+    action_args: Dict[str, Any]
+    observation: Any
+    timestamp: float
 
 
 class ReactAgentState(TypedDict, total=False):
     intent: str
     context: List[str]
-    actions: List[Dict[str, Any]]
+    actions: List[Dict[str, Any]]  # Legacy, kept for backward compatibility
+    trace: List[AgentTraceStep]  # New: complete thought-action-observation trace
     round: int
     decision: Dict[str, Any]
+    pending_thought: Optional[str]  # Thought waiting to be paired with observation
     final_summary: Optional[Dict[str, Any]]
     current_plan: Optional[Dict[str, Any]]
 
@@ -153,10 +169,11 @@ class ReactAgent:
                 else:
                     logger.info(f"ACTION: {tool_name}")
             
-            # Store the decision for tool execution
+            # Store the decision for tool execution and pending thought
             return {
                 "context": state.get("context", []) + new_context,
                 "decision": {"tool": tool_name, "arguments": tool_args},
+                "pending_thought": thinking if thinking else None,
                 "current_plan": state.get("current_plan"),
             }
 
@@ -168,6 +185,8 @@ class ReactAgent:
             
             function_name = decision["tool"]
             args = decision.get("arguments", {})
+            pending_thought = state.get("pending_thought")
+            current_trace = state.get("trace", [])
             
             # Special handling for summary - this ends the loop
             if function_name == "generate_operational_summary":
@@ -183,8 +202,20 @@ class ReactAgent:
                 logger.info(f"Operation completed: {summary['status']}")
                 if summary.get("problem_location"):
                     logger.info(f"PROBLEM LOCATION: {json.dumps(summary['problem_location'])}")
+                
+                # Create final trace step for summary
+                trace_step = AgentTraceStep(
+                    step_number=len(current_trace) + 1,
+                    thought=pending_thought,
+                    action=function_name,
+                    action_args=args,
+                    observation=summary,
+                    timestamp=time.time()
+                )
+                
                 return {
                     "final_summary": summary,
+                    "trace": current_trace + [trace_step],
                     "context": state.get("context", []) + [f"OPERATION COMPLETE: {summary['status']}"]
                 }
             
@@ -198,6 +229,16 @@ class ReactAgent:
                 result = await tool.ainvoke(args)
                 state_delta = {}
                 action_record = {"function": function_name, "parameters": args}
+
+            # Build trace step with thought-action-observation
+            trace_step = AgentTraceStep(
+                step_number=len(current_trace) + 1,
+                thought=pending_thought,
+                action=function_name,
+                action_args=args,
+                observation=result,
+                timestamp=time.time()
+            )
 
             # If the tool generated an action plan, capture it so the agent can proceed
             if function_name == "generate_action_plan":
@@ -216,7 +257,7 @@ class ReactAgent:
                 if isinstance(plan_candidate, dict):
                     state_delta = {**state_delta, "current_plan": plan_candidate}
 
-            # Record action
+            # Record action (legacy)
             action_record["result"] = result
             
             # Add observation to context (ReAct format)
@@ -272,6 +313,7 @@ class ReactAgent:
                 **state_delta,
                 "context": state.get("context", []) + new_context,
                 "actions": state.get("actions", []) + [action_record],
+                "trace": current_trace + [trace_step],
                 "round": next_round,
             }
             # End condition handled by routing; do not generate summaries here
@@ -361,7 +403,10 @@ class ReactAgent:
             snapshot: Optional initial snapshot of the system state
             
         Returns:
-            Tuple of (actions list, final summary dict)
+            Tuple of (actions list, trace list, final summary dict)
+            - actions: Legacy list of action dicts (for backward compatibility)
+            - trace: Complete list of AgentTraceStep objects with thought-action-observation
+            - summary: Final operational summary
         """
         if not self.is_initialized:
             await self.initialize()
@@ -376,9 +421,75 @@ class ReactAgent:
                 f"Initial Snapshot: {json.dumps(snapshot or {}, indent=2)}",
             ],
             "actions": [],
+            "trace": [],
             "round": 0,
         }
         config = {"recursion_limit": self.cfg.recursion_limit}
-        final_state: ReactAgentState = await self.graph.ainvoke(initial_state, config=config)
-        logger.info(f"Agent loop completed: {len(final_state.get('actions', []))} actions taken")
-        return final_state.get("actions", []), final_state.get("final_summary")
+        
+        try:
+            final_state: ReactAgentState = await self.graph.ainvoke(initial_state, config=config)
+            
+            trace = final_state.get("trace", [])
+            logger.info(f"Agent loop completed: {len(trace)} trace steps recorded")
+            
+            return final_state.get("actions", []), trace, final_state.get("final_summary")
+            
+        except GraphRecursionError as e:
+            # Recursion limit reached - capture partial trace using astream to recover state
+            logger.warning(f"Agent hit recursion limit: {e}")
+            logger.warning("⚠️  Attempting to recover partial trace...")
+            
+            # Try to recover partial trace by re-running with streaming
+            # This allows us to capture all intermediate states
+            partial_trace = []
+            partial_actions = []
+            last_round = 0
+            
+            try:
+                async for state_update in self.graph.astream(initial_state, config=config):
+                    # Each state_update is a dict with node name -> state delta
+                    for node_name, node_state in state_update.items():
+                        if isinstance(node_state, dict):
+                            if "trace" in node_state:
+                                partial_trace = node_state["trace"]
+                            if "actions" in node_state:
+                                partial_actions = node_state["actions"]
+                            if "round" in node_state:
+                                last_round = node_state["round"]
+            except GraphRecursionError:
+                # Expected - we'll hit the limit again
+                pass
+            
+            logger.warning(f"✅ Recovered partial trace: {len(partial_trace)} steps from {last_round} rounds")
+            
+            # Build emergency summary
+            emergency_summary = build_emergency_summary(
+                partial_actions,
+                f"INCOMPLETE - Recursion limit ({self.cfg.recursion_limit}) reached",
+                [
+                    f"Agent executed {last_round} rounds before hitting recursion limit",
+                    f"Captured {len(partial_trace)} trace steps",
+                    "Agent did not converge to a solution - may indicate infinite loop or complex problem"
+                ],
+                error=f"GraphRecursionError: {str(e)}"
+            )
+            
+            return partial_actions, partial_trace, emergency_summary
+            
+        except KeyboardInterrupt:
+            # Execution interrupted - we can't access the partial state from langgraph
+            # So we log what happened and return empty trace
+            logger.warning("Agent loop interrupted by user (Ctrl+C)")
+            logger.warning("⚠️  Note: LangGraph does not preserve partial state on interruption")
+            logger.warning("⚠️  Trace steps completed before interruption cannot be recovered")
+            
+            # Return empty trace and an emergency summary
+            emergency_summary = build_emergency_summary(
+                [],
+                "INTERRUPTED - User interrupted execution (Ctrl+C)",
+                ["Agent execution interrupted before completion"],
+                error="KeyboardInterrupt"
+            )
+            
+            # Re-raise so upstream handlers know we were interrupted
+            raise

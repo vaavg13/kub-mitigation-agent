@@ -31,4 +31,9 @@ class NoFailureAnomaly(Anomaly):
         """No-op cleanup for baseline experiments."""
         self._handle = None
         return True
+    
+    @staticmethod
+    def cleanup_all(**kwargs):
+        """No-op cleanup (no actual chaos to clean up)."""
+        return {"success": True, "message": "No cleanup needed for no-failure anomaly"}
 

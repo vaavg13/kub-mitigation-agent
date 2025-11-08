@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any
 from .experiment_runner import MitigationExperimentRunner
-from .experiment_k8s_ops import deploy_fresh_app_sync, undeploy_app_sync
+from .experiment_k8s_ops import deploy_fresh_app_sync, undeploy_app_sync, complete_pre_experiment_cleanup
 from kub_mitigation_agent.clients.mcp_client import kubectl_ready
 from kub_mitigation_agent.clients.prometheus_client import prometheus_ready
 from .experiment_logger import SimpleExperimentLogger
@@ -92,6 +92,17 @@ class BatchExperimentRunner:
         }
         
         try:
+            # Step 0: Complete pre-experiment cleanup
+            # Clean up any residual chaos state from previous experiments
+            nodes = self.batch_config.get("nodes", {})
+            chaosd_port = int(self.batch_config.get("chaosd", {}).get("port", 31767))
+            cleanup_results = complete_pre_experiment_cleanup(
+                namespace=experiment_config["namespace"],
+                nodes=nodes,
+                chaosd_port=chaosd_port
+            )
+            experiment_result["pre_cleanup_results"] = cleanup_results
+            
             # Step 1: Deploy fresh application
             print(f"\n▶ Deploying fresh application...", end="")
             deployment_success, _ns = deploy_fresh_app_sync(experiment_config)
@@ -120,11 +131,25 @@ class BatchExperimentRunner:
             if results.get("success"):
                 self.batch_results["successful_experiments"] += 1
                       
+        except KeyboardInterrupt:
+            # Experiment interrupted - mark it and save partial results including trace
+            experiment_result["interrupted"] = True
+            experiment_result["error"] = "Experiment interrupted by user (Ctrl+C)"
+            experiment_result.setdefault("completed_at", datetime.now(timezone.utc).isoformat())
+            if not experiment_result.get("experiment_duration_seconds"):
+                experiment_result["experiment_duration_seconds"] = time.time() - experiment_start_time
+            self.batch_results["failed_experiments"] += 1
+            print(f"\n⚠️  Experiment {experiment_id} interrupted - saving partial results and trace")
+            # Re-raise to let batch runner handle the interruption
+            raise
+            
         except Exception as e:
             # Update result with error info
             experiment_result["error"] = str(e)
+            experiment_result.setdefault("completed_at", datetime.now(timezone.utc).isoformat())
+            if not experiment_result.get("experiment_duration_seconds"):
+                experiment_result["experiment_duration_seconds"] = time.time() - experiment_start_time
             self.batch_results["failed_experiments"] += 1
-
             print(f"❌ Experiment {experiment_id} failed: {e}")
                     
         finally:       
@@ -135,13 +160,18 @@ class BatchExperimentRunner:
             except Exception as cleanup_error:
                 print(f"⚠️  Cleanup warning: {cleanup_error}")
 
-            # Save experiment log
+            # Save experiment log (ALWAYS, even on interrupt or failure)
             try:
                 log_file = self.simple_logger.log_experiment(
                     experiment_result,
                     batch_id=self.batch_results["batch_id"],
                 )
-                print(f"💾 Experiment log saved: {log_file.name}")
+                if experiment_result.get("interrupted"):
+                    print(f"💾 Partial experiment log saved (interrupted): {log_file.name}")
+                    if experiment_result.get("agent_trace"):
+                        print(f"   ✓ Saved {len(experiment_result['agent_trace'])} agent trace steps")
+                else:
+                    print(f"💾 Experiment log saved: {log_file.name}")
             except Exception as log_error:
                 logger.warning(f"Failed to save experiment log: {log_error}")
             

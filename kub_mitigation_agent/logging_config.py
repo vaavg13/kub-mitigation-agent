@@ -8,6 +8,8 @@ for user-facing progress output.
 import logging
 import os
 
+from kub_mitigation_agent.agent.agent_formatter import setup_agent_logging
+
 
 def setup_logging():
     """
@@ -39,6 +41,9 @@ def setup_logging():
     noisy_libs = ["httpx", "httpcore", "urllib3"]
     for lib in noisy_libs:
         logging.getLogger(lib).setLevel(logging.WARNING)
+    
+    # Setup colorized agent logging
+    setup_agent_logging("kub_mitigation_agent.agent.react_agent")
 
 
 

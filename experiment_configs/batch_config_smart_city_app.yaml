@@ -8,7 +8,7 @@ BATCH_CONFIG:
   recovery_duration: 60
 
   batch_settings:
-    random_seed: 42
+    random_seed: 420
     delay_between_experiments: 0
     chaos_experiments_file: "./experiment_configs/chaos_experiments_spec.yaml"
 
