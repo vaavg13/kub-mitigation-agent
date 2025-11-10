@@ -193,6 +193,15 @@ class MitigationExperimentRunner:
             print(f"  📊 Chaos: {cmp['chaos_success_rate']:.1f}% success, P95: {cmp['chaos_latency_p95']:.3f}s")
         print(f"  📊 Recovery: {cmp['recovery_success_rate']:.1f}% success, P95: {cmp['recovery_latency_p95']:.3f}s")
 
+        # Print recovery index metrics if available
+        if recovery_evaluation.get("composite_recovery_score") is not None:
+            comp_score = recovery_evaluation["composite_recovery_score"] * 100
+            lat_index = recovery_evaluation["recovery_index_latency"] * 100
+            sr_index = recovery_evaluation["recovery_index_success"] * 100
+            within_20pct = recovery_evaluation["within_20pct_baseline"]
+            within_20_label = " | ✓ Within 20% of baseline" if within_20pct else ""
+            print(f"  📈 Recovery Index: {comp_score:.0f}% (latency: {lat_index:.0f}%, success: {sr_index:.0f}%){within_20_label}")
+
         # Print recovery evaluation
         ok = recovery_evaluation["success"]
         status = "within baseline range" if ok else "outside baseline range"

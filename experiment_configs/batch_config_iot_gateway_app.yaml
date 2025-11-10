@@ -2,15 +2,14 @@ BATCH_CONFIG:
   namespace: "app-iot-gateway"
   app_directory: "./APPS"
 
-  warmup_duration: 90
+  warmup_duration: 30
   baseline_duration: 60
   chaos_warmup_duration: 60
-  recovery_duration: 60
+  recovery_duration: 5
 
   batch_settings:
     random_seed: 420
     delay_between_experiments: 0
-    chaos_experiments_file: "./experiment_configs/chaos_experiments_spec.yaml"
 
   available_deployments:
     - "cloud-analytics-engine-cloud"
@@ -23,7 +22,7 @@ BATCH_CONFIG:
     endpoints:
       - "/iot-device-gateway-edge-site-1"
       - "/iot-device-gateway-edge-site-2"
-    num_users: 50
+    num_users: 25
     spawn_rate: 10
     wait_time_min: 0.5
     wait_time_max: 1.5
@@ -43,3 +42,96 @@ BATCH_CONFIG:
     edge-site-1-worker-2: "192.168.100.24"
     edge-site-2-worker-1: "192.168.100.25"
     edge-site-2-worker-2: "192.168.100.26"
+
+  chaos_experiments:
+    baseline:
+      - name: "baseline-1"
+      - name: "baseline-2"
+      - name: "baseline-3"
+
+    pod_level:
+      cpu_stress:
+        - name: "cpu-one-gateway-site-1"
+          app: "iot-gateway-edge-site-1"
+          target_mode: "one_pod"
+          workers: 2
+          load: 85
+        - name: "cpu-one-edge-processor"
+          app: "edge-data-processor-edge-site-1"
+          target_mode: "one_pod"
+          workers: 3
+          load: 95
+        - name: "cpu-all-gateway-site-2"
+          app: "iot-gateway-edge-site-2"
+          target_mode: "all_pods_app"
+          workers: 2
+          load: 88
+        - name: "cpu-all-cloud-analytics"
+          app: "cloud-analytics-engine-cloud"
+          target_mode: "all_pods_app"
+          workers: 4
+          load: 92
+
+      memory_stress:
+        - name: "memory-one-gateway-site-1"
+          app: "iot-gateway-edge-site-1"
+          target_mode: "one_pod"
+          size: "1GB"
+          workers: 1
+        - name: "memory-one-edge-processor"
+          app: "edge-data-processor-edge-site-1"
+          target_mode: "one_pod"
+          size: "2GB"
+          workers: 2
+        - name: "memory-all-gateway-site-2"
+          app: "iot-gateway-edge-site-2"
+          target_mode: "all_pods_app"
+          size: "2GB"
+          workers: 2
+        - name: "memory-all-cloud-analytics"
+          app: "cloud-analytics-engine-cloud"
+          target_mode: "all_pods_app"
+          size: "2.5GB"
+          workers: 3
+
+      pod_failure:
+        - name: "podfailure-one-gateway-site-1"
+          app: "iot-gateway-edge-site-1"
+          target_mode: "one_pod"
+        - name: "podfailure-one-edge-processor"
+          app: "edge-data-processor-edge-site-1"
+          target_mode: "one_pod"
+        - name: "podfailure-all-gateway-site-2"
+          app: "iot-gateway-edge-site-2"
+          target_mode: "all_pods_app"
+        - name: "podfailure-all-cloud-analytics"
+          app: "cloud-analytics-engine-cloud"
+          target_mode: "all_pods_app"
+
+    node_level:
+      node_cpu_stress:
+        - name: "node-cpu-cloud-1"
+          node: "cloud-worker-1"
+          load: 90
+          workers: 6
+        - name: "node-cpu-edge-1"
+          node: "edge-site-1-worker-1"
+          load: 88
+          workers: 5
+        - name: "node-cpu-edge-2"
+          node: "edge-site-2-worker-1"
+          load: 90
+          workers: 5
+      node_memory_stress:
+        - name: "node-mem-cloud-2"
+          node: "cloud-worker-2"
+          size: "3GB"
+          workers: 1
+        - name: "node-mem-edge-1"
+          node: "edge-site-1-worker-2"
+          size: "3GB"
+          workers: 1
+        - name: "node-mem-edge-2"
+          node: "edge-site-2-worker-2"
+          size: "3GB"
+          workers: 1

@@ -6,7 +6,7 @@ llm:
   request_timeout: 120
 
 agent:
-  enabled: true
+  enabled: false
   max_rounds: 30
   timeout: 600
   full_output: true

@@ -18,12 +18,20 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         - success: bool
         - reason: str
         - metrics_comparison: dict of numeric comparisons (includes baseline/chaos/recovery values and ratios)
+        - recovery_index_latency: float (0-1 scale, 1=full recovery)
+        - recovery_index_success: float (0-1 scale, 1=full recovery)
+        - composite_recovery_score: float (0-1 scale, 1=full recovery)
+        - within_20pct_baseline: bool (True if within 20% of baseline)
     """
     if "baseline" not in phase_metrics or "recovery" not in phase_metrics:
         return {
             "success": False,
             "reason": "Missing baseline or recovery metrics for comparison",
-            "metrics_comparison": {}
+            "metrics_comparison": {},
+            "recovery_index_latency": None,
+            "recovery_index_success": None,
+            "composite_recovery_score": None,
+            "within_20pct_baseline": False
         }
     
     baseline = phase_metrics["baseline"]
@@ -40,42 +48,121 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         "baseline_success_rate": baseline["success_rate_percent"],
         "recovery_success_rate": recovery["success_rate_percent"],
     }
+    
+    # Calculate recovery indices if chaos metrics available
+    recovery_index_latency = None
+    recovery_index_success = None
+    composite_recovery_score = None
+    
     if chaos and "p95_latency_seconds" in chaos and "success_rate_percent" in chaos:
         metrics_comparison.update({
             "chaos_latency_p95": chaos["p95_latency_seconds"],
             "chaos_success_rate": chaos["success_rate_percent"],
+        })
+        
+        # Recovery Index: R = (chaos - recovery) / (chaos - baseline)
+        # R=1 → fully restored, R=0 → no improvement, R<0 → worsened
+        
+        # Latency recovery index
+        chaos_lat = chaos["p95_latency_seconds"]
+        recovery_lat = recovery["p95_latency_seconds"]
+        baseline_lat = baseline["p95_latency_seconds"]
+        
+        if chaos_lat != baseline_lat and baseline_lat > 0:
+            recovery_index_latency = (chaos_lat - recovery_lat) / (chaos_lat - baseline_lat)
+        elif recovery_lat <= baseline_lat * 1.1:  # Within 10% of baseline
+            recovery_index_latency = 1.0
+        else:
+            recovery_index_latency = 0.0
+        
+        # Success rate recovery index (normalized to 0-100 scale)
+        chaos_sr = chaos["success_rate_percent"]
+        recovery_sr = recovery["success_rate_percent"]
+        baseline_sr = baseline["success_rate_percent"]
+        
+        if chaos_sr != baseline_sr:
+            # For success rate, lower is worse, so we need to handle direction
+            recovery_index_success = (recovery_sr - chaos_sr) / (baseline_sr - chaos_sr)
+        elif abs(recovery_sr - baseline_sr) <= 1.0:  # Within 1% of baseline
+            recovery_index_success = 1.0
+        else:
+            recovery_index_success = 0.0
+        
+        # Composite recovery score (weighted average: 70% latency, 30% success rate)
+        composite_recovery_score = 0.7 * recovery_index_latency + 0.3 * recovery_index_success
+        
+        metrics_comparison.update({
+            "recovery_index_latency": recovery_index_latency,
+            "recovery_index_success": recovery_index_success,
+            "composite_recovery_score": composite_recovery_score
         })
     
     # Normal mode: compare recovery with baseline
     latency_ratio = recovery["p95_latency_seconds"] / baseline["p95_latency_seconds"] if baseline["p95_latency_seconds"] > 0 else float('inf')
     success_rate_diff = abs(recovery["success_rate_percent"] - baseline["success_rate_percent"])
     
+    # Check if within 20% of baseline
+    within_20pct_latency = latency_ratio <= 1.20
+    within_20pct_success = success_rate_diff <= 1.0  # Within 1% for success rate (already percentage)
+    within_20pct_baseline = within_20pct_latency and within_20pct_success
+    
     latency_acceptable = latency_ratio <= latency_threshold
     success_rate_acceptable = success_rate_diff <= success_rate_threshold
     
     success = latency_acceptable and success_rate_acceptable
     
-    if success:
-        reason = f"Recovery within acceptable thresholds: latency {latency_ratio:.2f}x baseline, success rate ±{success_rate_diff:.1f}%"
+    # Build reason string with recovery index info
+    if composite_recovery_score is not None:
+        recovery_pct = composite_recovery_score * 100
+        reason_parts = [
+            f"Recovery index: {recovery_pct:.0f}% (latency: {recovery_index_latency*100:.0f}%, success: {recovery_index_success*100:.0f}%)"
+        ]
+        
+        if within_20pct_baseline:
+            reason_parts.append("✓ Within 20% of baseline")
+        
+        if success:
+            reason_parts.append(f"✓ Within thresholds: latency {latency_ratio:.2f}x baseline, success ±{success_rate_diff:.1f}%")
+        else:
+            issues = []
+            if not latency_acceptable:
+                issues.append(f"latency {latency_ratio:.2f}x baseline (threshold: {latency_threshold}x)")
+            if not success_rate_acceptable:
+                issues.append(f"success ±{success_rate_diff:.1f}% (threshold: ±{success_rate_threshold}%)")
+            reason_parts.append(f"✗ Exceeded thresholds: {', '.join(issues)}")
+        
+        reason = " | ".join(reason_parts)
     else:
-        issues = []
-        if not latency_acceptable:
-            issues.append(f"latency {latency_ratio:.2f}x baseline (threshold: {latency_threshold}x)")
-        if not success_rate_acceptable:
-            issues.append(f"success rate ±{success_rate_diff:.1f}% (threshold: ±{success_rate_threshold}%)")
-        reason = f"Recovery exceeded thresholds: {', '.join(issues)}"
+        # Fallback if no chaos metrics
+        if success:
+            reason = f"Recovery within acceptable thresholds: latency {latency_ratio:.2f}x baseline, success rate ±{success_rate_diff:.1f}%"
+        else:
+            issues = []
+            if not latency_acceptable:
+                issues.append(f"latency {latency_ratio:.2f}x baseline (threshold: {latency_threshold}x)")
+            if not success_rate_acceptable:
+                issues.append(f"success rate ±{success_rate_diff:.1f}% (threshold: ±{success_rate_threshold}%)")
+            reason = f"Recovery exceeded thresholds: {', '.join(issues)}"
+        
+        if within_20pct_baseline:
+            reason += " | ✓ Within 20% of baseline"
     
     metrics_comparison.update({
         "latency_ratio": latency_ratio,
         "success_rate_diff": success_rate_diff,
         "latency_acceptable": latency_acceptable,
-        "success_rate_acceptable": success_rate_acceptable
+        "success_rate_acceptable": success_rate_acceptable,
+        "within_20pct_baseline": within_20pct_baseline
     })
     
     return {
         "success": success,
         "reason": reason,
         "metrics_comparison": metrics_comparison,
+        "recovery_index_latency": recovery_index_latency,
+        "recovery_index_success": recovery_index_success,
+        "composite_recovery_score": composite_recovery_score,
+        "within_20pct_baseline": within_20pct_baseline
     }
 
 

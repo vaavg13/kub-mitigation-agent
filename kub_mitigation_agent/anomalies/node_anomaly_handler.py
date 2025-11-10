@@ -6,7 +6,7 @@ Node anomaly handler (Chaosd): CPU / Memory stress on a node via Chaosd HTTP API
 from typing import Dict, Tuple
 import time
 
-import requests
+import requests  # type: ignore[import]
 
 from .anomaly_base import Anomaly
 
@@ -173,7 +173,6 @@ class NodeAnomalyHandler(Anomaly):
 
         Reference: https://chaos-mesh.org/docs/chaosd-search-recover/
         """
-        import requests  # local import to avoid hard dependency at import time
 
         summary: Dict[str, Dict[str, int]] = {}
         for host in nodes.values():
@@ -192,6 +191,14 @@ class NodeAnomalyHandler(Anomaly):
                     uid = exp.get("uid") or exp.get("Uid") or exp.get("UID")
                     if not uid:
                         continue
+
+                    status_value = exp.get("status") or exp.get("Status")
+                    if status_value is not None:
+                        status_normalized = str(status_value).strip().lower()
+                        if status_normalized and status_normalized not in {"running", "in-progress", "inject", "executing"}:
+                            # Already finished/recovered experiment - nothing to clean
+                            continue
+
                     node_sum["listed"] += 1
                     # retry delete per UID
                     deleted = False

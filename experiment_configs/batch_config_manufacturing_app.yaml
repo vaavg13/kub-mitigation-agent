@@ -10,7 +10,6 @@ BATCH_CONFIG:
   batch_settings:
     random_seed: 420
     delay_between_experiments: 0
-    chaos_experiments_file: "./experiment_configs/chaos_experiments_spec.yaml"
 
   available_deployments:
     - "sensor-data-ingestion-edge-site-1"
@@ -53,5 +52,98 @@ BATCH_CONFIG:
     edge-site-1-worker-2: "192.168.100.24"
     edge-site-2-worker-1: "192.168.100.25"
     edge-site-2-worker-2: "192.168.100.26"
+
+  chaos_experiments:
+    baseline:
+      - name: "baseline-1"
+      - name: "baseline-2"
+      - name: "baseline-3"
+
+    pod_level:
+      cpu_stress:
+        - name: "cpu-one-sensor-site-1"
+          app: "sensor-data-ingestion-edge-site-1"
+          target_mode: "one_pod"
+          workers: 3
+          load: 80
+        - name: "cpu-one-edge-preprocess-1"
+          app: "edge-data-preprocessing-edge-site-1"
+          target_mode: "one_pod"
+          workers: 2
+          load: 88
+        - name: "cpu-all-sensor-site-2"
+          app: "sensor-data-ingestion-edge-site-2"
+          target_mode: "all_pods_app"
+          workers: 3
+          load: 85
+        - name: "cpu-all-predictive-maintenance"
+          app: "predictive-maintenance-analytics-cloud"
+          target_mode: "all_pods_app"
+          workers: 5
+          load: 94
+
+      memory_stress:
+        - name: "memory-one-sensor-site-1"
+          app: "sensor-data-ingestion-edge-site-1"
+          target_mode: "one_pod"
+          size: "1GB"
+          workers: 1
+        - name: "memory-one-anomaly-detection"
+          app: "real-time-anomaly-detection-edge-site-1"
+          target_mode: "one_pod"
+          size: "2GB"
+          workers: 2
+        - name: "memory-all-edge-preprocess-2"
+          app: "edge-data-preprocessing-edge-site-2"
+          target_mode: "all_pods_app"
+          size: "2GB"
+          workers: 2
+        - name: "memory-all-predictive-maintenance"
+          app: "predictive-maintenance-analytics-cloud"
+          target_mode: "all_pods_app"
+          size: "2.5GB"
+          workers: 3
+
+      pod_failure:
+        - name: "podfailure-one-sensor-site-1"
+          app: "sensor-data-ingestion-edge-site-1"
+          target_mode: "one_pod"
+        - name: "podfailure-one-anomaly-detection"
+          app: "real-time-anomaly-detection-edge-site-1"
+          target_mode: "one_pod"
+        - name: "podfailure-all-sensor-site-2"
+          app: "sensor-data-ingestion-edge-site-2"
+          target_mode: "all_pods_app"
+        - name: "podfailure-all-predictive-maintenance"
+          app: "predictive-maintenance-analytics-cloud"
+          target_mode: "all_pods_app"
+
+    node_level:
+      node_cpu_stress:
+        - name: "node-cpu-cloud-ops"
+          node: "cloud-worker-2"
+          load: 90
+          workers: 6
+        - name: "node-cpu-edge-site-1"
+          node: "edge-site-1-worker-2"
+          load: 88
+          workers: 5
+        - name: "node-cpu-edge-site-2"
+          node: "edge-site-2-worker-2"
+          load: 90
+          workers: 5
+      node_memory_stress:
+        - name: "node-mem-cloud-ops"
+          node: "cloud-worker-1"
+          size: "3GB"
+          workers: 1
+        - name: "node-mem-edge-site-1"
+          node: "edge-site-1-worker-1"
+          size: "3GB"
+          workers: 1
+        - name: "node-mem-edge-site-2"
+          node: "edge-site-2-worker-1"
+          size: "3GB"
+          workers: 1
 
 

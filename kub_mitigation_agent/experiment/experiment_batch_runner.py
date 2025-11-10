@@ -1,5 +1,6 @@
 import time
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any
 from .experiment_runner import MitigationExperimentRunner
@@ -89,6 +90,7 @@ class BatchExperimentRunner:
             "experiment_id": experiment_id,
             "index": index + 1,
             "namespace": experiment_config["namespace"],
+            "chaos_config": ai,
         }
         
         try:
@@ -181,10 +183,10 @@ class BatchExperimentRunner:
         """Run the complete batch of experiments."""
 
         # Print batch summary
-        print(f"🎲 Generating chaos configurations from spec (seed: {self.random_seed})")
+        print(f"📋 Loading chaos configurations from spec (seed retained for record: {self.random_seed})")
         print(f"📊 Experiment logging initialized for batch: {self.batch_results['batch_id']}")
         print(f"💾 Logs will be saved to: {self.simple_logger.output_dir}")
-        print(f"🔀 Instances shuffled for random execution order")
+        print(f"🎯 Instances execute exactly in the configured order")
         print(f"📦 Total anomalies generated: {len(self.anomalies)}")
         print(f"📊 Available nodes: {self.available_nodes_count}")
         print(f"📊 Available apps: {self.available_apps_count}")
@@ -205,7 +207,29 @@ class BatchExperimentRunner:
                 # Create experiment config and ID
                 chaos_info = anomaly.get_info()
                 experiment_config = self._create_experiment_config()
-                experiment_id = f"exp_{index+1:03d}_anomaly"
+
+                fault_label = chaos_info.get("fault_type") or chaos_info.get("type") or "anomaly"
+                mode_label = chaos_info.get("mode", "chaos")
+                target = chaos_info.get("target", {}) or {}
+                target_label = (
+                    target.get("name")
+                    or target.get("app")
+                    or target.get("namespace")
+                    or target.get("node")
+                    or target.get("resource")
+                )
+
+                slug_components = [
+                    f"{index+1:03d}",
+                    mode_label,
+                    fault_label,
+                ]
+                if target_label:
+                    slug_components.append(target_label)
+
+                raw_slug = "-".join(str(component) for component in slug_components if component)
+                normalized_slug = re.sub(r"[^a-zA-Z0-9-]+", "-", raw_slug).strip("-").lower()
+                experiment_id = f"exp_{normalized_slug}"
                 
                 # Run the experiment
                 experiment_result = await self.run_single_experiment(
