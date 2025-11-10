@@ -385,6 +385,7 @@ class SimpleExperimentLogger:
             "success_rate_percent": metrics.get("success_rate_percent", 0.0),
             "p95_latency_seconds": metrics.get("p95_latency_seconds", 0.0),
         }
+    
         
     def save_batch_summary(self, batch_results: Dict[str, Any]) -> Path:
         """Save a simple batch summary."""

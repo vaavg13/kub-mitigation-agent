@@ -86,8 +86,13 @@ class AnomalyConfigGenerator:
         if baseline_entries:
             if not isinstance(baseline_entries, list):
                 raise ValueError("baseline must be a list when provided")
-            for _ in baseline_entries:
-                all_instances.append(NoFailureAnomaly())
+            for entry in baseline_entries:
+                name = None
+                if isinstance(entry, dict):
+                    name = entry.get("name")
+                elif entry:
+                    name = str(entry)
+                all_instances.append(NoFailureAnomaly(experiment_name=name))
 
         # --- Pod-level anomalies (Chaos Mesh) ---
         pod_spec = self.chaos_experiments_spec.get("pod_level", {})
@@ -120,6 +125,7 @@ class AnomalyConfigGenerator:
                         target_mode=target_mode,
                         app=app_name,
                         params={"workers": int(workers), "load": int(load)},
+                        experiment_name=entry.get("name"),
                     )
                     all_instances.append(inst)
 
@@ -149,6 +155,7 @@ class AnomalyConfigGenerator:
                         target_mode=target_mode,
                         app=app_name,
                         params=params,
+                        experiment_name=entry.get("name"),
                     )
                     all_instances.append(inst)
 
@@ -172,6 +179,7 @@ class AnomalyConfigGenerator:
                         fault_type="pod_failure",
                         target_mode=target_mode,
                         app=app_name,
+                        experiment_name=entry.get("name"),
                     )
                     all_instances.append(inst)
 
@@ -206,6 +214,7 @@ class AnomalyConfigGenerator:
                         chaosd_port=chaosd_port,
                         stress_type="cpu",
                         params={"load": int(load), "workers": int(workers)},
+                        experiment_name=entry.get("name"),
                     )
                     all_instances.append(inst)
 
@@ -235,6 +244,7 @@ class AnomalyConfigGenerator:
                         chaosd_port=chaosd_port,
                         stress_type="mem",
                         params=params,
+                        experiment_name=entry.get("name"),
                     )
                     all_instances.append(inst)
 

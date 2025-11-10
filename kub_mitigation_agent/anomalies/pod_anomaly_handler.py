@@ -21,6 +21,7 @@ class PodAnomalyHandler(Anomaly):
         target_mode: str,
         app: str,
         params: Optional[Dict[str, Any]] = None,
+        experiment_name: Optional[str] = None,
     ):
         super().__init__()
         self.namespace = namespace
@@ -28,6 +29,7 @@ class PodAnomalyHandler(Anomaly):
         self.target_mode = target_mode  # "one_pod" | "all_pods_app"
         self.app = app
         self.params = params or {}
+        self.experiment_name = experiment_name
 
         self._validate()
 
@@ -89,7 +91,7 @@ class PodAnomalyHandler(Anomaly):
         return base_template
 
     def get_info(self) -> Dict:
-        return {
+        info: Dict[str, Any] = {
             "mode": "chaos",
             "provider": "chaosmesh",
             "type": self.fault_type,
@@ -99,8 +101,11 @@ class PodAnomalyHandler(Anomaly):
                 "mode": self.target_mode,
                 "app": self.app,
             },
-            "params": self.params,
+            "parameters": dict(self.params),
         }
+        if self.experiment_name:
+            info["name"] = self.experiment_name
+        return info
 
     def start(self) -> Dict:
         if self._handle is not None:

@@ -3,7 +3,7 @@
 Node anomaly handler (Chaosd): CPU / Memory stress on a node via Chaosd HTTP API.
 """
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional, Any
 import time
 
 import requests  # type: ignore[import]
@@ -26,6 +26,7 @@ class NodeAnomalyHandler(Anomaly):
         chaosd_port: int,
         stress_type: str,
         params: Dict,
+        experiment_name: Optional[str] = None,
         request_timeout_seconds: int = 10,
         max_retries: int = 3,
         backoff_seconds: float = 1.0,
@@ -39,6 +40,7 @@ class NodeAnomalyHandler(Anomaly):
         self.request_timeout_seconds = request_timeout_seconds
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
+        self.experiment_name = experiment_name
 
         self._validate()
 
@@ -85,7 +87,7 @@ class NodeAnomalyHandler(Anomaly):
 
     def get_info(self) -> Dict:
         fault_type = f"node_{self.stress_type}_stress"
-        return {
+        info: Dict[str, Any] = {
             "mode": "chaos",
             "provider": "chaosd",
             "type": self.stress_type,
@@ -97,7 +99,11 @@ class NodeAnomalyHandler(Anomaly):
             },
             "endpoint": f"{self._base_url()}/api/attack/stress",
             "payload": self._build_payload(),
+            "parameters": dict(self.params),
         }
+        if self.experiment_name:
+            info["name"] = self.experiment_name
+        return info
 
     def start(self) -> Dict:
         if self._handle is not None:

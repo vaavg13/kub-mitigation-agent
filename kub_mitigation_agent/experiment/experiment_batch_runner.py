@@ -69,6 +69,25 @@ class BatchExperimentRunner:
         """Create complete experiment config (no anomaly-specific data)."""
         return self.batch_config.copy()
     
+    def _build_experiment_id(self, index: int, chaos_info: Dict[str, Any]) -> str:
+        """Create a readable experiment ID based on anomaly metadata."""
+        fault_label = chaos_info.get("fault_type") or chaos_info.get("type") or "anomaly"
+        mode_label = chaos_info.get("mode") or "chaos"
+
+        target = chaos_info.get("target") or {}
+        target_label = next(
+            (target.get(field) for field in ("name", "app", "namespace", "node", "resource") if target.get(field)),
+            None,
+        )
+
+        slug_parts = [f"{index + 1:03d}", mode_label, fault_label]
+        if target_label:
+            slug_parts.append(str(target_label))
+
+        raw_slug = "-".join(slug_parts)
+        normalized_slug = re.sub(r"[^a-zA-Z0-9-]+", "-", raw_slug).strip("-").lower()
+        return f"exp_{normalized_slug}"
+    
     async def run_single_experiment(
         self, 
         experiment_config: Dict[str, Any],
@@ -208,28 +227,7 @@ class BatchExperimentRunner:
                 chaos_info = anomaly.get_info()
                 experiment_config = self._create_experiment_config()
 
-                fault_label = chaos_info.get("fault_type") or chaos_info.get("type") or "anomaly"
-                mode_label = chaos_info.get("mode", "chaos")
-                target = chaos_info.get("target", {}) or {}
-                target_label = (
-                    target.get("name")
-                    or target.get("app")
-                    or target.get("namespace")
-                    or target.get("node")
-                    or target.get("resource")
-                )
-
-                slug_components = [
-                    f"{index+1:03d}",
-                    mode_label,
-                    fault_label,
-                ]
-                if target_label:
-                    slug_components.append(target_label)
-
-                raw_slug = "-".join(str(component) for component in slug_components if component)
-                normalized_slug = re.sub(r"[^a-zA-Z0-9-]+", "-", raw_slug).strip("-").lower()
-                experiment_id = f"exp_{normalized_slug}"
+                experiment_id = self._build_experiment_id(index, chaos_info)
                 
                 # Run the experiment
                 experiment_result = await self.run_single_experiment(
@@ -240,7 +238,7 @@ class BatchExperimentRunner:
                 )
                 
                 # Store results (also attach chaos info for logging/viewing)
-                experiment_result.setdefault("chaos_config", chaos_info)
+                experiment_result["chaos_config"] = chaos_info.copy()
                 self.batch_results["experiments"].append(experiment_result)
                         
         except KeyboardInterrupt:
