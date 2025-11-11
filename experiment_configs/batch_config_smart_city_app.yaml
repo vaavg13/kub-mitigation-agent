@@ -31,7 +31,7 @@ BATCH_CONFIG:
     - "reporting-planning-tools-cloud"
 
   traffic_config:
-    host: "http://172.23.0.5:30420"
+    host: "http://192.168.100.10:31596"
     endpoints:
       - "/traffic-sensor-ingest-edge-site-1"
       - "/traffic-sensor-ingest-edge-site-2"

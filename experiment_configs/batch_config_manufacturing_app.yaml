@@ -27,7 +27,7 @@ BATCH_CONFIG:
     - "reporting-dashboarding-cloud"
 
   traffic_config:
-    host: "http://172.23.0.5:30435"
+    host: "http://192.168.100.10:31596"
     endpoints:
       - "/sensor-data-ingestion-edge-site-1"
       - "/sensor-data-ingestion-edge-site-2"

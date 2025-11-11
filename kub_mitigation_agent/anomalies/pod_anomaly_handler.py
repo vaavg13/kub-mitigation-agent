@@ -48,8 +48,12 @@ class PodAnomalyHandler(Anomaly):
                 raise ValueError("memory_stress requires 'size'")
 
     def _generate_name(self) -> str:
-        suffix = f"{self.fault_type}-{self.target_mode}-{self.app}".replace("_", "-")
-        return suffix[:60]
+        raw = f"{self.fault_type}-{self.target_mode}-{self.app}".replace("_", "-").lower()
+        sanitized = "".join(ch if (ch.isalnum() or ch == "-") else "-" for ch in raw)
+        trimmed = sanitized[:60].strip("-")
+        if not trimmed:
+            trimmed = "chaos"
+        return trimmed
 
     def _build_template(self) -> Dict[str, Any]:
         name = self._generate_name()
