@@ -226,9 +226,23 @@ class ReactAgent:
                 state_delta = {}
                 action_record = {"type": "error", "function": function_name, "parameters": args}
             else:
-                result = await tool.ainvoke(args)
-                state_delta = {}
-                action_record = {"function": function_name, "parameters": args}
+                try:
+                    result = await tool.ainvoke(args)
+                    state_delta = {}
+                    action_record = {"function": function_name, "parameters": args}
+                except Exception as tool_error:
+                    # Catch tool execution errors (ValidationError, network errors, etc.)
+                    # Create error result and continue - agent can decide how to proceed
+                    error_name = type(tool_error).__name__
+                    error_msg = str(tool_error)
+                    logger.warning(f"Tool {function_name} failed with {error_name}: {error_msg}")
+                    result = {
+                        "error": f"{error_name}: {error_msg}",
+                        "error_type": error_name,
+                        "tool": function_name
+                    }
+                    state_delta = {}
+                    action_record = {"type": "error", "function": function_name, "parameters": args}
 
             # Build trace step with thought-action-observation
             trace_step = AgentTraceStep(
@@ -493,3 +507,45 @@ class ReactAgent:
             
             # Re-raise so upstream handlers know we were interrupted
             raise
+            
+        except Exception as e:
+            # Catch any other unexpected errors and attempt to recover partial trace
+            error_name = type(e).__name__
+            error_msg = str(e)
+            logger.error(f"Agent loop failed with unexpected error {error_name}: {error_msg}")
+            logger.warning("⚠️  Attempting to recover partial trace...")
+            
+            # Try to recover partial trace by streaming (similar to GraphRecursionError handling)
+            partial_trace = []
+            partial_actions = []
+            last_round = 0
+            
+            try:
+                async for state_update in self.graph.astream(initial_state, config=config):
+                    for node_name, node_state in state_update.items():
+                        if isinstance(node_state, dict):
+                            if "trace" in node_state:
+                                partial_trace = node_state["trace"]
+                            if "actions" in node_state:
+                                partial_actions = node_state["actions"]
+                            if "round" in node_state:
+                                last_round = node_state["round"]
+            except Exception:
+                # If streaming also fails, we'll use whatever we have (likely empty)
+                pass
+            
+            logger.warning(f"✅ Recovered partial trace: {len(partial_trace)} steps from {last_round} rounds")
+            
+            # Build emergency summary with error details
+            emergency_summary = build_emergency_summary(
+                partial_actions,
+                f"ERROR - {error_name}",
+                [
+                    f"Agent execution failed with {error_name}",
+                    f"Captured {len(partial_trace)} trace steps before failure",
+                    f"Error: {error_msg}"
+                ],
+                error=f"{error_name}: {error_msg}"
+            )
+            
+            return partial_actions, partial_trace, emergency_summary

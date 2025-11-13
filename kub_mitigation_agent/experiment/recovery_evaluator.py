@@ -16,7 +16,6 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict with:
         - success: bool
-        - reason: str
         - metrics_comparison: dict of numeric comparisons (includes baseline/chaos/recovery values and ratios)
         - recovery_index_latency: float (0-1 scale, 1=full recovery)
         - recovery_index_success: float (0-1 scale, 1=full recovery)
@@ -26,7 +25,6 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
     if "baseline" not in phase_metrics or "recovery" not in phase_metrics:
         return {
             "success": False,
-            "reason": "Missing baseline or recovery metrics for comparison",
             "metrics_comparison": {},
             "recovery_index_latency": None,
             "recovery_index_success": None,
@@ -70,6 +68,10 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         
         if chaos_lat != baseline_lat and baseline_lat > 0:
             recovery_index_latency = (chaos_lat - recovery_lat) / (chaos_lat - baseline_lat)
+            # If recovery exceeds baseline (better than baseline), cap at 1.0 or allow > 1.0
+            # Recovery better than baseline means full recovery achieved
+            if recovery_lat < baseline_lat:
+                recovery_index_latency = max(1.0, recovery_index_latency)
         elif recovery_lat <= baseline_lat * 1.1:  # Within 10% of baseline
             recovery_index_latency = 1.0
         else:
@@ -83,6 +85,9 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         if chaos_sr != baseline_sr:
             # For success rate, lower is worse, so we need to handle direction
             recovery_index_success = (recovery_sr - chaos_sr) / (baseline_sr - chaos_sr)
+            # If recovery exceeds baseline (better than baseline), cap at 1.0 or allow > 1.0
+            if recovery_sr > baseline_sr:
+                recovery_index_success = max(1.0, recovery_index_success)
         elif abs(recovery_sr - baseline_sr) <= 1.0:  # Within 1% of baseline
             recovery_index_success = 1.0
         else:
@@ -90,12 +95,6 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         
         # Composite recovery score (weighted average: 70% latency, 30% success rate)
         composite_recovery_score = 0.7 * recovery_index_latency + 0.3 * recovery_index_success
-        
-        metrics_comparison.update({
-            "recovery_index_latency": recovery_index_latency,
-            "recovery_index_success": recovery_index_success,
-            "composite_recovery_score": composite_recovery_score
-        })
     
     # Normal mode: compare recovery with baseline
     latency_ratio = recovery["p95_latency_seconds"] / baseline["p95_latency_seconds"] if baseline["p95_latency_seconds"] > 0 else float('inf')
@@ -111,53 +110,15 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
     
     success = latency_acceptable and success_rate_acceptable
     
-    # Build reason string with recovery index info
-    if composite_recovery_score is not None:
-        recovery_pct = composite_recovery_score * 100
-        reason_parts = [
-            f"Recovery index: {recovery_pct:.0f}% (latency: {recovery_index_latency*100:.0f}%, success: {recovery_index_success*100:.0f}%)"
-        ]
-        
-        if within_20pct_baseline:
-            reason_parts.append("✓ Within 20% of baseline")
-        
-        if success:
-            reason_parts.append(f"✓ Within thresholds: latency {latency_ratio:.2f}x baseline, success ±{success_rate_diff:.1f}%")
-        else:
-            issues = []
-            if not latency_acceptable:
-                issues.append(f"latency {latency_ratio:.2f}x baseline (threshold: {latency_threshold}x)")
-            if not success_rate_acceptable:
-                issues.append(f"success ±{success_rate_diff:.1f}% (threshold: ±{success_rate_threshold}%)")
-            reason_parts.append(f"✗ Exceeded thresholds: {', '.join(issues)}")
-        
-        reason = " | ".join(reason_parts)
-    else:
-        # Fallback if no chaos metrics
-        if success:
-            reason = f"Recovery within acceptable thresholds: latency {latency_ratio:.2f}x baseline, success rate ±{success_rate_diff:.1f}%"
-        else:
-            issues = []
-            if not latency_acceptable:
-                issues.append(f"latency {latency_ratio:.2f}x baseline (threshold: {latency_threshold}x)")
-            if not success_rate_acceptable:
-                issues.append(f"success rate ±{success_rate_diff:.1f}% (threshold: ±{success_rate_threshold}%)")
-            reason = f"Recovery exceeded thresholds: {', '.join(issues)}"
-        
-        if within_20pct_baseline:
-            reason += " | ✓ Within 20% of baseline"
-    
     metrics_comparison.update({
         "latency_ratio": latency_ratio,
         "success_rate_diff": success_rate_diff,
         "latency_acceptable": latency_acceptable,
-        "success_rate_acceptable": success_rate_acceptable,
-        "within_20pct_baseline": within_20pct_baseline
+        "success_rate_acceptable": success_rate_acceptable
     })
     
     return {
         "success": success,
-        "reason": reason,
         "metrics_comparison": metrics_comparison,
         "recovery_index_latency": recovery_index_latency,
         "recovery_index_success": recovery_index_success,
@@ -196,7 +157,6 @@ def evaluate_problem_location_match(
         - location_identified: bool (True if agent correctly identified location)
         - expected_target: str (the expected target from chaos_config)
         - reported_locations: list of strings (names from problem_location)
-        - match_details: str (explanation of match/mismatch)
     """
     mode = chaos_config.get("mode", "unknown")
     
@@ -205,16 +165,10 @@ def evaluate_problem_location_match(
         reported_names = [loc.get("name", "") for loc in (problem_location or [])]
         correctly_identified = len(reported_names) == 0 or not any(reported_names)
         
-        if correctly_identified:
-            match_details = "No failure injected - agent correctly reported no problem location"
-        else:
-            match_details = f"No failure injected but agent reported problem locations: {reported_names}"
-        
         return {
             "location_identified": correctly_identified,
             "expected_target": None,
-            "reported_locations": reported_names,
-            "match_details": match_details
+            "reported_locations": reported_names
         }
     
     # Extract expected target from the unified anomaly format
@@ -235,8 +189,7 @@ def evaluate_problem_location_match(
         return {
             "location_identified": False,
             "expected_target": "unknown",
-            "reported_locations": [loc.get("name", "") for loc in (problem_location or [])],
-            "match_details": f"Could not determine expected target from chaos config (mode: {mode}, provider: {chaos_config.get('provider')})"
+            "reported_locations": [loc.get("name", "") for loc in (problem_location or [])]
         }
     
     # Extract reported locations from agent
@@ -247,8 +200,7 @@ def evaluate_problem_location_match(
         return {
             "location_identified": False,
             "expected_target": expected_target,
-            "reported_locations": [],
-            "match_details": f"Agent did not identify any problem locations (expected: {expected_target})"
+            "reported_locations": []
         }
     
     # Perform fuzzy matching
@@ -261,16 +213,9 @@ def evaluate_problem_location_match(
             matched_name = reported_name
             break
     
-    # Build result
-    if match_found:
-        match_details = f"Agent correctly identified location: '{matched_name}' matches expected '{expected_target}'"
-    else:
-        match_details = f"Agent identified: {reported_names}, but expected: '{expected_target}'"
-    
     return {
         "location_identified": match_found,
         "expected_target": expected_target,
-        "reported_locations": reported_names,
-        "match_details": match_details
+        "reported_locations": reported_names
     }
 

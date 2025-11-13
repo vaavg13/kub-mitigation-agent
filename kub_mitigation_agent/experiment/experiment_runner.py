@@ -333,8 +333,6 @@ class MitigationExperimentRunner:
             # Set overall experiment success based on the earlier recovery evaluation
             recovery_evaluation = results.get("recovery_evaluation", {})
             results["success"] = bool(recovery_evaluation.get("success"))
-            results["recovery_successful"] = bool(recovery_evaluation.get("success"))
-            results["recovery_reason"] = recovery_evaluation.get("reason")
             
             return results
             

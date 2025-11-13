@@ -2,10 +2,10 @@ BATCH_CONFIG:
   namespace: "app-iot-gateway"
   app_directory: "./APPS"
 
-  warmup_duration: 30
+  warmup_duration: 60
   baseline_duration: 60
   chaos_warmup_duration: 60
-  recovery_duration: 5
+  recovery_duration: 60
 
   batch_settings:
     random_seed: 420
@@ -44,10 +44,10 @@ BATCH_CONFIG:
     edge-site-2-worker-2: "192.168.100.26"
 
   chaos_experiments:
-    # baseline:
-    #   - name: "baseline-1"
-    #   - name: "baseline-2"
-    #   - name: "baseline-3"
+    baseline:
+      - name: "baseline-1"
+      - name: "baseline-2"
+      - name: "baseline-3"
 
     pod_level:
       cpu_stress:

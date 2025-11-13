@@ -19,7 +19,7 @@ def parse_arguments():
     parser.add_argument(
         "--config", "-c",
         type=Path,
-        default=REPO_ROOT / "experiment_configs" / "batch_config_smart_city_app.yaml",
+        default=REPO_ROOT / "experiment_configs" / "batch_config_manufacturing_app.yaml",
         help="Path to YAML batch config"
     )
 

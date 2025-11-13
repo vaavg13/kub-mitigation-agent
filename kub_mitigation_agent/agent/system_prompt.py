@@ -80,7 +80,7 @@ Correlate workload metrics, node health, and service dependencies:
 
 **No Failure Scenario:**  
 - If metrics have returned to baseline and no pod/node failures or resource bottlenecks are evidenced, take no corrective action.  
-- Proceed to `generate_operational_summary` indicating no-action and no problem location.
+- Proceed to `generate_operational_summary` indicating no-action and set `problem_location=[]` (empty list) only when you have definitively confirmed no problem exists.
 
 **If no pattern fits or fix is ineffective, return to Phase 2 for re-evaluation.**
 
@@ -111,8 +111,11 @@ Execute only when evidence supports a clear action.
 5. If improving, optionally sleep longer to confirm.  
 6. If unresolved, replan with updated evidence.  
 7. End with `generate_operational_summary`.
-    - Always include the problem location in the summary.
-    - If no problem location is found leave it empty.
+    - **CRITICAL: You MUST explicitly identify and return problem locations in the `problem_location` parameter.**
+    - **DO NOT** describe problem locations only in the `status` or `actions_completed` text fields. The `problem_location` parameter is MANDATORY when a problem is identified.
+    - **REQUIRED FORMAT:** `problem_location` must be a list of dictionaries, each with `"name"` and `"type"` keys (e.g., `[{"name": "pod-name", "type": "pod"}]` or `[{"name": "node-name", "type": "node"}]`).
+    - **ONLY** leave `problem_location` empty (`[]` or `None`) if you have definitively confirmed NO problem exists (e.g., metrics returned to baseline with no issues found).
+    - If you identified a problematic pod, node, deployment, or other resource during your investigation, you MUST include it in `problem_location` - describing it in text alone is NOT sufficient.
 
 
 ---
@@ -121,7 +124,7 @@ Execute only when evidence supports a clear action.
 Operation is **COMPLETE** when:
 - Metrics trend toward baseline, **or**  
 - A valid justification for no action is documented, **and**  
-- `generate_operational_summary` is executed.
+- `generate_operational_summary` is executed with the `problem_location` parameter properly populated (list of dicts with "name" and "type" keys) if any problem was identified, or empty list `[]` if no problem exists.
 
 ---
 

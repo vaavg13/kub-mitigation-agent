@@ -6,6 +6,7 @@ A clean, single-file logging solution for chaos experiments.
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -28,6 +29,9 @@ class ExperimentLog:
     completed_at: Optional[str] = None
     duration_seconds: Optional[float] = None
     
+    # Results
+    experiment_success: bool = False
+    
     # Configuration - FULL chaos config stored
     chaos_config: Dict[str, Any] = field(default_factory=dict)
     
@@ -43,22 +47,15 @@ class ExperimentLog:
     
     # Agent operational summary (full details)
     operational_summary: Optional[Dict[str, Any]] = None
-    problem_location: Optional[Dict[str, Any]] = None
     
     # Evaluation results
+    recovery_evaluation: Optional[Dict[str, Any]] = None
     location_evaluation: Optional[Dict[str, Any]] = None
     
-    # Results
-    experiment_success: bool = False
-    recovery_successful: bool = False
-    recovery_reason: str = ""
     error: Optional[str] = None
     interrupted: bool = False  # True if experiment was interrupted by user (Ctrl+C)
     
     # Searchable summary fields for easy querying
-    chaos_mode: str = ""
-    chaos_fault_type: str = ""
-    chaos_intensity: str = ""
     final_success_rate: Optional[float] = None
     final_latency_p95: Optional[float] = None
     
@@ -134,8 +131,23 @@ class ExperimentLog:
 class SimpleExperimentLogger:
     """Clean logger that saves complete experiment data in one call."""
     
-    def __init__(self, output_dir: str, batch_id: str, prometheus_url: str = "http://localhost:9090"):
-        self.output_dir = Path(output_dir) / batch_id
+    def __init__(
+        self,
+        output_dir: str,
+        batch_id: str,
+        prometheus_url: str = "http://localhost:9090",
+        model_name: Optional[str] = None,
+    ):
+        sanitized_model = None
+        if model_name:
+            sanitized_model = re.sub(r"[^a-zA-Z0-9._-]+", "-", model_name).strip("-")
+            if not sanitized_model:
+                sanitized_model = "unknown-model"
+        
+        self.output_dir = Path(output_dir)
+        if sanitized_model:
+            self.output_dir /= sanitized_model
+        self.output_dir /= batch_id
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.prometheus_url = prometheus_url
     
@@ -308,10 +320,9 @@ class SimpleExperimentLogger:
         agent_success = bool(experiment_result.get("agent_success", False))
         agent_duration_seconds = experiment_result.get("agent_execution_duration_seconds", 0)
         operational_summary = experiment_result.get("operational_summary")
+        recovery_evaluation = experiment_result.get("recovery_evaluation")
         location_evaluation = experiment_result.get("location_evaluation")
         experiment_success = bool(experiment_result.get("success", False))
-        recovery_successful = bool(experiment_result.get("recovery_successful", False))
-        recovery_reason = experiment_result.get("recovery_reason", "")
         error = experiment_result.get("error")
         interrupted = bool(experiment_result.get("interrupted", False))
 
@@ -343,13 +354,11 @@ class SimpleExperimentLogger:
             batch_id=batch_id,
             experiment_index=experiment_index,
             namespace=namespace,
+            experiment_success=experiment_success,
             started_at=started_at,
             completed_at=completed_at,
             duration_seconds=duration_seconds,
             chaos_config=chaos_config,
-            chaos_mode=chaos_config.get("mode", "unknown"),
-            chaos_fault_type=chaos_config.get("fault_type") or chaos_config.get("type", "unknown"),
-            chaos_intensity=str(chaos_config.get("intensity", "unknown")),
             baseline_metrics=self._simplify_metrics(baseline),
             chaos_metrics=self._simplify_metrics(chaos),
             recovery_metrics=self._simplify_metrics(recovery),
@@ -357,11 +366,8 @@ class SimpleExperimentLogger:
             agent_success=agent_success,
             agent_duration_seconds=agent_duration_seconds,
             operational_summary=operational_summary,
-            problem_location=(operational_summary.get("problem_location") if isinstance(operational_summary, dict) else None),
+            recovery_evaluation=recovery_evaluation,
             location_evaluation=location_evaluation,
-            experiment_success=experiment_success,
-            recovery_successful=recovery_successful,
-            recovery_reason=recovery_reason,
             error=error,
             interrupted=interrupted,
             final_success_rate=recovery.get("success_rate_percent"),
@@ -420,7 +426,7 @@ class SimpleExperimentLogger:
                     "chaos": f"{exp['chaos_config']['mode']}_{exp['chaos_config']['fault_type']}",
                     "success": exp.get("success", False),
                     "agent_trace_steps": len(exp.get("agent_trace", [])),
-                    "recovery_successful": exp.get("recovery_successful", False),
+                    "recovery_successful": exp.get("recovery_evaluation", {}).get("success", False) if exp.get("recovery_evaluation") else False,
                     "location_identified": exp.get("location_evaluation", {}).get("location_identified") if exp.get("location_evaluation") else None
                 }
                 for exp in batch_results.get("experiments", [])

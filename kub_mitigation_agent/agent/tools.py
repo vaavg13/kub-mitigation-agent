@@ -89,7 +89,7 @@ def generate_action_plan(objective: str, situation: str, steps: List[str], expec
     }
 
 
-@tool(description="Emit the final operational summary and stop the operation.")
+@tool(description="Emit the final operational summary and stop the operation. CRITICAL: You MUST explicitly populate the problem_location parameter with identified problem resources (pods, nodes, deployments, etc.) as a list of dicts with 'name' and 'type' keys. DO NOT describe problem locations only in text fields - they MUST be in the problem_location parameter.")
 def generate_operational_summary(
     objective: str,
     actions_completed: List[str],
@@ -98,7 +98,23 @@ def generate_operational_summary(
     problem_location: Optional[List[Dict[str, str]]] = None,
     success: bool = False,
 ) -> Dict[str, Any]:
-    """Generate final operational summary for the run."""
+    """Generate final operational summary for the run.
+    
+    CRITICAL REQUIREMENT: The problem_location parameter is MANDATORY when any problem is identified.
+    You MUST explicitly return problem locations in this parameter, NOT just describe them in status/actions_completed text.
+    
+    Args:
+        objective: Clear objective for this operation
+        actions_completed: List of actions taken during the operation
+        results_achieved: List of results or outcomes achieved
+        status: Final status message
+        problem_location: **REQUIRED** - List of dictionaries identifying problem resources. Each dict must have:
+            - "name": The exact resource name (e.g., "pod-name", "node-name", "deployment-name")
+            - "type": The resource type (e.g., "pod", "node", "deployment", "hpa")
+            Example: [{"name": "edge-service-xyz", "type": "pod"}, {"name": "worker-node-1", "type": "node"}]
+            MUST be populated if any problem was identified. Only leave empty ([]) if definitively no problem exists.
+        success: Whether the operation was successful
+    """
     return {
         "objective": objective,
         "actions_completed": actions_completed,

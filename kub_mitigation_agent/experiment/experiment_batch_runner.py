@@ -61,7 +61,8 @@ class BatchExperimentRunner:
         # Initialize simple logger
         self.simple_logger = SimpleExperimentLogger(
             output_dir=self.output_base_dir,
-            batch_id=self.batch_results["batch_id"]
+            batch_id=self.batch_results["batch_id"],
+            model_name=getattr(self.agent_config, "model", None),
         )
 
 
