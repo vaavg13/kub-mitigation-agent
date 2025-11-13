@@ -47,7 +47,6 @@ BATCH_CONFIG:
     baseline:
       - name: "baseline-1"
       - name: "baseline-2"
-      - name: "baseline-3"
 
     pod_level:
       cpu_stress:
