@@ -56,21 +56,20 @@ BATCH_CONFIG:
   chaos_experiments:
     baseline:
       - name: "baseline-1"
-      - name: "baseline-2"
-      - name: "baseline-3"
+      # - name: "baseline-2"
 
     pod_level:
       cpu_stress:
-        - name: "cpu-one-sensor-site-1"
-          app: "sensor-data-ingestion-edge-site-1"
-          target_mode: "one_pod"
-          workers: 3
-          load: 80
-        - name: "cpu-one-edge-preprocess-1"
-          app: "edge-data-preprocessing-edge-site-1"
-          target_mode: "one_pod"
-          workers: 2
-          load: 88
+        # - name: "cpu-one-sensor-site-1"
+        #   app: "sensor-data-ingestion-edge-site-1"
+        #   target_mode: "one_pod"
+        #   workers: 3
+        #   load: 80
+        # - name: "cpu-one-edge-preprocess-1"
+        #   app: "edge-data-preprocessing-edge-site-1"
+        #   target_mode: "one_pod"
+        #   workers: 2
+        #   load: 88
         - name: "cpu-all-sensor-site-2"
           app: "sensor-data-ingestion-edge-site-2"
           target_mode: "all_pods_app"
