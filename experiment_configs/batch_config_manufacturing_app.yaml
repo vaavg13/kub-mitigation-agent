@@ -54,32 +54,32 @@ BATCH_CONFIG:
     edge-site-2-worker-2: "192.168.100.26"
 
   chaos_experiments:
-    baseline:
-      - name: "baseline-1"
-      # - name: "baseline-2"
+    # baseline:
+    #   - name: "baseline-1"
+    #   - name: "baseline-2"
 
     pod_level:
-      cpu_stress:
-        # - name: "cpu-one-sensor-site-1"
-        #   app: "sensor-data-ingestion-edge-site-1"
-        #   target_mode: "one_pod"
-        #   workers: 3
-        #   load: 80
-        # - name: "cpu-one-edge-preprocess-1"
-        #   app: "edge-data-preprocessing-edge-site-1"
-        #   target_mode: "one_pod"
-        #   workers: 2
-        #   load: 88
-        - name: "cpu-all-sensor-site-2"
-          app: "sensor-data-ingestion-edge-site-2"
-          target_mode: "all_pods_app"
-          workers: 3
-          load: 85
-        - name: "cpu-all-predictive-maintenance"
-          app: "predictive-maintenance-analytics-cloud"
-          target_mode: "all_pods_app"
-          workers: 5
-          load: 94
+      # cpu_stress:
+      #   - name: "cpu-one-sensor-site-1"
+      #     app: "sensor-data-ingestion-edge-site-1"
+      #     target_mode: "one_pod"
+      #     workers: 3
+      #     load: 80
+      #   - name: "cpu-one-edge-preprocess-1"
+      #     app: "edge-data-preprocessing-edge-site-1"
+      #     target_mode: "one_pod"
+      #     workers: 2
+      #     load: 88
+      #   - name: "cpu-all-sensor-site-2"
+      #     app: "sensor-data-ingestion-edge-site-2"
+      #     target_mode: "all_pods_app"
+      #     workers: 3
+      #     load: 85
+      #   - name: "cpu-all-predictive-maintenance"
+      #     app: "predictive-maintenance-analytics-cloud"
+      #     target_mode: "all_pods_app"
+      #     workers: 5
+      #     load: 94
 
       memory_stress:
         - name: "memory-one-sensor-site-1"
@@ -144,5 +144,3 @@ BATCH_CONFIG:
           node: "edge-site-2-worker-1"
           size: "3GB"
           workers: 1
-
-

@@ -49,7 +49,7 @@ if __name__ == "__main__":
         print(f"Timeout: {cfg.agent_timeout}s")
         
         try:
-            actions_taken, operational_summary = await asyncio.wait_for(
+            trace_steps, operational_summary = await asyncio.wait_for(
                 agent.agent_loop(intent), 
                 timeout=cfg.agent_timeout
             )
@@ -59,7 +59,7 @@ if __name__ == "__main__":
         finally:
             await agent.cleanup()
             
-        print(f"\n✓ Completed: {len(actions_taken)} actions")
+        print(f"\n✓ Completed: {len(trace_steps)} steps")
         if isinstance(operational_summary, dict):
             status = operational_summary.get("status", "N/A")
             success = "✓" if operational_summary.get("success") else "✗"

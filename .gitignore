@@ -22,7 +22,8 @@ DATASET_LOGS_OLD*/
 # APPS/
 yamls/
 docs/
-PLOTS/
+_PLOTS/
+_DRY_TESTS/
 
 # IDE and editor files
 .vscode/

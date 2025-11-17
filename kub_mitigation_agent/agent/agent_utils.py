@@ -6,10 +6,18 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def build_emergency_summary(actions: List[Dict[str, Any]], status: str, results: List[str], error: Optional[str] = None) -> Dict[str, Any]:
+def _describe_action(action: Any) -> str:
+    if isinstance(action, str):
+        return action
+    if isinstance(action, dict):
+        return action.get("function", action.get("tool", "unknown"))
+    return str(action)
+
+
+def build_emergency_summary(actions: List[Any], status: str, results: List[str], error: Optional[str] = None) -> Dict[str, Any]:
     summary: Dict[str, Any] = {
         "objective": "Agent execution incomplete",
-        "actions_completed": [a.get("function", a.get("tool", "unknown")) for a in (actions or [])],
+        "actions_completed": [_describe_action(a) for a in (actions or [])],
         "results_achieved": results,
         "status": status,
         "problem_location": [],

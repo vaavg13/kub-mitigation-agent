@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import yaml
+from dataclasses import asdict
 from dotenv import load_dotenv
 
 
@@ -56,23 +57,26 @@ if __name__ == "__main__":
         print("ReAct agent initialized. Running mission...")
         
         try:
-            actions_taken, operational_summary = await asyncio.wait_for(
+            trace_steps, operational_summary = await asyncio.wait_for(
                 agent.agent_loop(intent), 
                 timeout=cfg.agent_timeout or 120
             )
         finally:
             await agent.cleanup()
 
-        # Print full action list with parameters and results
-        print("\n===== ACTIONS (FULL) =====")
-        for i, action in enumerate(actions_taken, start=1):
-            print(f"\n-- Action #{i} --")
-            print(json.dumps(action, indent=2))
+        # Print full trace list with parameters and results
+        print("\n===== TRACE (FULL) =====")
+        for i, step in enumerate(trace_steps, start=1):
+            print(f"\n-- Step #{i} --")
+            if hasattr(step, "__dict__"):
+                print(json.dumps(asdict(step), indent=2))
+            else:
+                print(json.dumps(step, indent=2))
 
         print("\n===== OPERATIONAL SUMMARY =====")
         print(json.dumps(operational_summary, indent=2))
         
-        return actions_taken, operational_summary
+        return trace_steps, operational_summary
 
     asyncio.run(_run())
 

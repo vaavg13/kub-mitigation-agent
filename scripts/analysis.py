@@ -18,7 +18,7 @@ SUCCESS_ONLY_LOG_DIRECTORIES = [
     "DATASET_LOGS/batch_20250710_150954_app-iot-gateway"
 ]
 
-def agent_took_no_system_changing_actions(actions: List[Dict[str, Any]]) -> bool:
+def agent_took_no_system_changing_actions(trace: List[Dict[str, Any]]) -> bool:
     """
     Checks if the agent performed any actions that change the system state.
     Returns True if no changing actions were taken, False otherwise.
@@ -35,18 +35,17 @@ def agent_took_no_system_changing_actions(actions: List[Dict[str, Any]]) -> bool
         "kubectl_drain": None,
     }
 
-    for action in actions:
-        if action.get('type') == 'mcp_call':
-            function_name = action.get('function')
-            if function_name in CHANGING_ACTIONS:
-                changing_subcommands = CHANGING_ACTIONS[function_name]
-                if changing_subcommands is None:
-                    return False  # Any use of this function is a changing action
+    for step in trace or []:
+        function_name = step.get('action')
+        if function_name in CHANGING_ACTIONS:
+            changing_subcommands = CHANGING_ACTIONS[function_name]
+            if changing_subcommands is None:
+                return False  # Any use of this function is a changing action
 
-                parameters = action.get('parameters', {})
-                subcommand = parameters.get('subCommand')
-                if subcommand in changing_subcommands:
-                    return False  # This specific subcommand is a changing action
+            parameters = step.get('action_args', {}) or {}
+            subcommand = parameters.get('subCommand') or parameters.get('subcommand')
+            if subcommand in changing_subcommands:
+                return False  # This specific subcommand is a changing action
     
     return True  # No system-changing actions found
 
@@ -57,12 +56,12 @@ def analyze_experiment(experiment_data: Dict[str, Any]) -> Dict[str, Any]:
     identified the problem location.
     """
     chaos_config = experiment_data.get('chaos_config', {})
-    agent_actions = experiment_data.get('agent_actions', [])
+    agent_trace = experiment_data.get('agent_trace', []) or []
     problem_location_data = experiment_data.get('problem_location')
     mode = chaos_config.get('mode', 'unknown')
     experiment_success = experiment_data.get('experiment_success', False)
     namespace = experiment_data.get('namespace', 'N/A')
-    num_rounds = len(agent_actions)
+    num_rounds = len(agent_trace)
 
     agent_locations = []
     if isinstance(problem_location_data, list):
@@ -82,7 +81,7 @@ def analyze_experiment(experiment_data: Dict[str, Any]) -> Dict[str, Any]:
 
     correctness = False
     if mode == "no_failure":
-        correctness = agent_took_no_system_changing_actions(agent_actions)
+        correctness = agent_took_no_system_changing_actions(agent_trace)
     elif ground_truth_target:
         correctness = any(ground_truth_target in loc for loc in agent_locations)
 
@@ -218,7 +217,7 @@ def main():
                             'experiment_success': data.get('experiment_success', False),
                             'fault_type': fault_type,
                             'namespace': data.get('namespace', 'N/A'),
-                            'num_rounds': len(data.get('agent_actions', [])),
+                            'num_rounds': len(data.get('agent_trace', []) or []),
                         })
                     except json.JSONDecodeError:
                         print(f"Warning: Could not decode JSON from {filepath}")

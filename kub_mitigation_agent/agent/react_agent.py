@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from typing import Any, Dict, List, Optional, TypedDict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 from langgraph.graph import END, StateGraph
 from langgraph.errors import GraphRecursionError
@@ -20,7 +20,7 @@ from .llm_provider import get_llm
 from .system_prompt import get_system_prompt
 from kub_mitigation_agent.clients.mcp_client import MCPClient
 from .tools import ALL_TOOLS, set_mcp_client, set_warmup_end_timestamp
-from .agent_utils import log_thought_action_observation, build_emergency_summary
+from .agent_utils import build_emergency_summary
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,6 @@ class AgentTraceStep:
 class ReactAgentState(TypedDict, total=False):
     intent: str
     context: List[str]
-    actions: List[Dict[str, Any]]  # Legacy, kept for backward compatibility
     trace: List[AgentTraceStep]  # New: complete thought-action-observation trace
     round: int
     decision: Dict[str, Any]
@@ -62,6 +61,7 @@ class ReactAgent:
         self.mcp_client: Optional[MCPClient] = None
         self.graph = None
         self.is_initialized = False
+        self._state_snapshot: ReactAgentState = {}
 
     # Emergency summaries are built in outer agent wrapper
 
@@ -99,6 +99,75 @@ class ReactAgent:
         
         self.is_initialized = False
 
+    def _reset_state_snapshot(self, initial_state: ReactAgentState):
+        """Store a copy of the initial state for partial-trace recovery."""
+        self._state_snapshot = dict(initial_state)
+
+    def _update_state_snapshot(self, delta: ReactAgentState):
+        """Merge latest state updates into snapshot for exception recovery."""
+        for key, value in delta.items():
+            self._state_snapshot[key] = value
+
+    def _get_state_snapshot(self) -> ReactAgentState:
+        """Return the most recent known state."""
+        return self._state_snapshot
+
+    async def _force_operational_summary(
+        self,
+        status: str,
+        results: List[str],
+        error: Optional[str] = None,
+        success: bool = False,
+    ):
+        """Force-generate operational summary and store in snapshot. Used for error recovery scenarios."""
+        snapshot = self._get_state_snapshot()
+        trace = snapshot.get("trace", [])
+        action_names = [step.action for step in trace]
+        intent = snapshot.get("intent") or "Mitigation mission"
+        
+        args = {
+            "objective": intent,
+            "actions_completed": action_names,
+            "results_achieved": results,
+            "status": status,
+            "problem_location": [],
+            "success": success,
+        }
+        
+        # Try agent tool first, fallback to emergency summary
+        summary_tool = self._tools_by_name["generate_operational_summary"]
+        try:
+            summary = await summary_tool.ainvoke(args)
+            logger.info("Operational summary generated via agent tool.")
+        except Exception as tool_error:
+            logger.error(f"Summary tool failed: {tool_error}")
+            summary = build_emergency_summary(action_names, status, results, error=error)
+        
+        # Store summary in snapshot (no trace step - summary is returned separately)
+        self._update_state_snapshot({
+            "final_summary": summary,
+        })
+
+    async def _handle_agent_failure(self, exc: Exception) -> tuple[List[AgentTraceStep], Dict[str, Any]]:
+        """Recover partial trace from snapshot and force operational summary generation."""
+        error_name = type(exc).__name__
+        logger.warning(f"Agent failed with {error_name}: {exc}")
+        
+        snapshot = self._get_state_snapshot()
+        logger.warning(f"⚠️  Recovered {len(snapshot.get('trace', []))} trace steps from snapshot")
+        
+        # Force operational summary (updates snapshot)
+        await self._force_operational_summary(
+            status=f"FAILED - {error_name}",
+            results=[f"Agent failed: {str(exc)}"],
+            error=f"{error_name}: {str(exc)}",
+            success=False,
+        )
+        
+        # Read back from snapshot
+        updated_snapshot = self._get_state_snapshot()
+        return updated_snapshot.get("trace", []), updated_snapshot.get("final_summary")
+
     def _build_graph(self):
         """Build simple ReAct graph: agent -> tool_exec -> agent (loop)."""
         graph = StateGraph(ReactAgentState)
@@ -118,29 +187,33 @@ class ReactAgent:
                 logger.warning("Agent did not call a tool")
                 current_round = state.get("round", 0) + 1
                 context_msg = "SYSTEM: Agent failed to produce a tool call. Re-analyze and try again."
-                # If max rounds reached, emit an emergency summary to terminate properly
+                # If max rounds reached, force operational summary to terminate
                 if current_round >= self.cfg.max_rounds:
-                    emergency_summary = {
-                        "objective": "Agent execution incomplete",
-                        "actions_completed": [a.get("tool", "unknown") for a in state.get("actions", [])],
-                        "results_achieved": ["Maximum rounds reached"],
-                        "status": "FAILED - Maximum rounds reached",
-                        "problem_location": [],
-                        "success": False
-                    }
+                    # Update snapshot with current round
+                    self._update_state_snapshot({"round": current_round})
+                    # Force summary generation
+                    await self._force_operational_summary(
+                        status="FAILED - Maximum rounds reached",
+                        results=["Agent reached maximum rounds without completion"],
+                        success=False,
+                    )
+                    # Return state with summary from snapshot
+                    snapshot = self._get_state_snapshot()
                     return {
-                        "context": state.get("context", []) + [context_msg, "OPERATION COMPLETE: FAILED - Maximum rounds reached"],
+                        "context": state.get("context", []) + [context_msg],
                         "round": current_round,
-                        "final_summary": emergency_summary,
+                        "final_summary": snapshot.get("final_summary"),
                         "decision": {},
                         "current_plan": state.get("current_plan"),
                     }
-                return {
+                state_update = {
                     "context": state.get("context", []) + [context_msg],
                     "round": current_round,
                     "decision": {},
                     "current_plan": state.get("current_plan"),
                 }
+                self._update_state_snapshot(state_update)
+                return state_update
             
             # Extract first tool call
             tc = ai.tool_calls[0]
@@ -152,30 +225,23 @@ class ReactAgent:
 
             # Build context with thinking and decision
             new_context = []
-            full_output = getattr(self.cfg, "full_output", True)
-            # Always maintain full context internally for reasoning
             if thinking:
                 new_context.append(f"THOUGHT: {thinking}")
             new_context.append(f"ACTION: {tool_name}({json.dumps(tool_args, separators=(',', ':'))})")
-            # Output logging behavior
-            if tool_name == "generate_action_plan":
-                # Always show a simple notice for action plan creation regardless of mode
-                logger.info("AGENT CREATED ACTION PLAN")
-            else:
-                if full_output:
-                    # Print thought (even if empty) and action; observation will be printed after tool execution
-                    logger.info(f"THOUGHT: {thinking if thinking else '(none)'}")
-                    logger.info(f"ACTION: {tool_name}({json.dumps(tool_args, separators=(',', ':'))})")
-                else:
-                    logger.info(f"ACTION: {tool_name}")
+            
+            # Log thought and action
+            logger.info(f"THOUGHT: {thinking if thinking else '(none)'}")
+            logger.info(f"ACTION: {tool_name}({json.dumps(tool_args, separators=(',', ':'))})")
             
             # Store the decision for tool execution and pending thought
-            return {
+            state_update = {
                 "context": state.get("context", []) + new_context,
                 "decision": {"tool": tool_name, "arguments": tool_args},
                 "pending_thought": thinking if thinking else None,
                 "current_plan": state.get("current_plan"),
             }
+            self._update_state_snapshot(state_update)
+            return state_update
 
         async def tool_exec(state: ReactAgentState) -> ReactAgentState:
             """Execute the tool chosen by the agent."""
@@ -188,48 +254,13 @@ class ReactAgent:
             pending_thought = state.get("pending_thought")
             current_trace = state.get("trace", [])
             
-            # Special handling for summary - this ends the loop
-            if function_name == "generate_operational_summary":
-                summary = {
-                    "objective": args.get("objective", ""),
-                    "actions_completed": args.get("actions_completed", []),
-                    "results_achieved": args.get("results_achieved", []),
-                    "status": args.get("status", ""),
-                    "problem_location": args.get("problem_location", []),
-                    "success": args.get("success", False)
-                }
-                # Always include status and problem location regardless of mode
-                logger.info(f"Operation completed: {summary['status']}")
-                if summary.get("problem_location"):
-                    logger.info(f"PROBLEM LOCATION: {json.dumps(summary['problem_location'])}")
-                
-                # Create final trace step for summary
-                trace_step = AgentTraceStep(
-                    step_number=len(current_trace) + 1,
-                    thought=pending_thought,
-                    action=function_name,
-                    action_args=args,
-                    observation=summary,
-                    timestamp=time.time()
-                )
-                
-                return {
-                    "final_summary": summary,
-                    "trace": current_trace + [trace_step],
-                    "context": state.get("context", []) + [f"OPERATION COMPLETE: {summary['status']}"]
-                }
-            
             # Execute the tool directly.
             tool = self._tools_by_name.get(function_name)
             if not tool:
                 result = {"error": f"Unknown tool: {function_name}"}
-                state_delta = {}
-                action_record = {"type": "error", "function": function_name, "parameters": args}
             else:
                 try:
                     result = await tool.ainvoke(args)
-                    state_delta = {}
-                    action_record = {"function": function_name, "parameters": args}
                 except Exception as tool_error:
                     # Catch tool execution errors (ValidationError, network errors, etc.)
                     # Create error result and continue - agent can decide how to proceed
@@ -241,8 +272,6 @@ class ReactAgent:
                         "error_type": error_name,
                         "tool": function_name
                     }
-                    state_delta = {}
-                    action_record = {"type": "error", "function": function_name, "parameters": args}
 
             # Build trace step with thought-action-observation
             trace_step = AgentTraceStep(
@@ -254,83 +283,26 @@ class ReactAgent:
                 timestamp=time.time()
             )
 
-            # If the tool generated an action plan, capture it so the agent can proceed
-            if function_name == "generate_action_plan":
-                plan_candidate = None
-                if isinstance(result, dict):
-                    # Some tools return { "plan": { ... } }, others may return the plan dict directly
-                    plan_candidate = result.get("plan", None)
-                    if plan_candidate is None and any(k in result for k in ("steps", "expected_outcomes", "objective", "situation")):
-                        plan_candidate = result
-                    # If plan is provided as a JSON string, attempt to parse
-                    if isinstance(plan_candidate, str):
-                        try:
-                            plan_candidate = json.loads(plan_candidate)
-                        except Exception:
-                            plan_candidate = None
-                if isinstance(plan_candidate, dict):
-                    state_delta = {**state_delta, "current_plan": plan_candidate}
-
-            # Record action (legacy)
-            action_record["result"] = result
-            
             # Add observation to context (ReAct format)
             result_str = json.dumps(result)
-            full_output = getattr(self.cfg, "full_output", True)
-            if function_name == "generate_action_plan":
-                # Always show the plan itself after the simple notice above, formatted
-                plan_view = None
-                if isinstance(result, dict):
-                    plan_view = result.get("plan")
-                    if plan_view is None and any(k in result for k in ("steps", "expected_outcomes", "objective", "situation")):
-                        plan_view = result
-                if isinstance(plan_view, str):
-                    try:
-                        plan_view = json.loads(plan_view)
-                    except Exception:
-                        plan_view = None
-                if isinstance(plan_view, dict):
-                    objective = plan_view.get("objective", "")
-                    situation = plan_view.get("situation", "")
-                    steps = plan_view.get("steps") or []
-                    expected = plan_view.get("expected_outcomes") or []
-                    lines = [
-                        "📝 Action Plan:",
-                        f"  • Objective: {objective}",
-                        f"  • Situation: {situation}",
-                        "  • Steps:",
-                    ]
-                    if steps:
-                        for step in steps:
-                            lines.append(f"    - {step}")
-                    else:
-                        lines.append("    - (none)")
-                    lines.append("  • Expected outcomes:")
-                    if expected:
-                        for item in expected:
-                            lines.append(f"    - {item}")
-                    else:
-                        lines.append("    - (none)")
-                    logger.info("\n".join(lines))
-                else:
-                    # Fallback to raw observation if structure not recognized
-                    logger.info(f"OBSERVATION: {result_str}")
-            else:
-                if full_output:
-                    # After execution, print only the observation (no duplicate action)
-                    logger.info(f"OBSERVATION: {result_str}")
-                # In non-full mode do not log observations
-            new_context = [f"OBSERVATION: {result_str}"]
             
-            next_round = state.get("round", 0) + 1
+            # Log observation
+            logger.info(f"OBSERVATION: {result_str}")
+            
+            # Build state update
             new_state = {
-                **state_delta,
-                "context": state.get("context", []) + new_context,
-                "actions": state.get("actions", []) + [action_record],
+                "context": state.get("context", []) + [f"OBSERVATION: {result_str}"],
                 "trace": current_trace + [trace_step],
-                "round": next_round,
+                "round": state.get("round", 0) + 1,
             }
-            # End condition handled by routing; do not generate summaries here
+            
+            # Store special tool outputs in state
+            if function_name == "generate_action_plan" and isinstance(result, dict):
+                new_state["current_plan"] = result
+            if function_name == "generate_operational_summary" and isinstance(result, dict):
+                new_state["final_summary"] = result
+            
+            self._update_state_snapshot(new_state)
             return new_state
 
         # Add nodes
@@ -344,7 +316,7 @@ class ReactAgent:
                 return END
             if "decision" in state and state.get("decision", {}).get("tool"):
                 return "tool_exec"
-            # No decision and no summary; continue trying
+
             return "agent"
 
         def route_after_tool(state: ReactAgentState):
@@ -362,46 +334,13 @@ class ReactAgent:
 
     def _build_agent_messages(self, state: ReactAgentState) -> List[Any]:
         """Build messages for the agent with system prompt and context."""
-        intent = state.get("intent", "")
-        context = state.get("context", [])
-        round_num = state.get("round", 0)
-        actions = state.get("actions", [])
-        plan = state.get("current_plan")
-        
-        # Build context string
-        context_text = "\n".join(context).strip()
-        if not context_text:
-            context_text = "(no observations yet)"
-
-        if plan:
-            steps = plan.get("steps") or []
-            expected = plan.get("expected_outcomes") or []
-            plan_lines = [
-                f"Objective: {plan.get('objective', '')}",
-                f"Situation: {plan.get('situation', '')}",
-                "Steps:",
-            ]
-            if steps:
-                plan_lines.extend(f"- {step}" for step in steps)
-            else:
-                plan_lines.append("- (none provided)")
-            plan_lines.append("Expected outcomes:")
-            if expected:
-                plan_lines.extend(f"- {item}" for item in expected)
-            else:
-                plan_lines.append("- (none provided)")
-            plan_text = "\n".join(plan_lines)
-        else:
-            plan_text = "No plan set."
-        
-        # Build user message with current situation
-        user_message = (
-            f"MISSION: {intent}\n\n"
-            f"ROUND: {round_num}\n"
-            f"CONTEXT LOG:\n{context_text}\n\n"
-            f"PLAN STATUS:\n{plan_text}\n\n"
-            "Respond with the next single tool call that best advances the plan."
-        )
+        user_message = json.dumps({
+            "mission": state.get("intent", ""),
+            "round": state.get("round", 0),
+            "context_log": state.get("context", []),
+            "current_plan": state.get("current_plan"),
+            "instruction": "Respond with the next single tool call that best advances the plan."
+        }, indent=2)
 
         return [
             SystemMessage(content=get_system_prompt()),
@@ -417,8 +356,7 @@ class ReactAgent:
             snapshot: Optional initial snapshot of the system state
             
         Returns:
-            Tuple of (actions list, trace list, final summary dict)
-            - actions: Legacy list of action dicts (for backward compatibility)
+            Tuple of (trace list, final summary dict)
             - trace: Complete list of AgentTraceStep objects with thought-action-observation
             - summary: Final operational summary
         """
@@ -434,10 +372,10 @@ class ReactAgent:
                 f"Intent: {intent}",
                 f"Initial Snapshot: {json.dumps(snapshot or {}, indent=2)}",
             ],
-            "actions": [],
             "trace": [],
             "round": 0,
         }
+        self._reset_state_snapshot(initial_state)
         config = {"recursion_limit": self.cfg.recursion_limit}
         
         try:
@@ -446,106 +384,21 @@ class ReactAgent:
             trace = final_state.get("trace", [])
             logger.info(f"Agent loop completed: {len(trace)} trace steps recorded")
             
-            return final_state.get("actions", []), trace, final_state.get("final_summary")
-            
-        except GraphRecursionError as e:
-            # Recursion limit reached - capture partial trace using astream to recover state
-            logger.warning(f"Agent hit recursion limit: {e}")
-            logger.warning("⚠️  Attempting to recover partial trace...")
-            
-            # Try to recover partial trace by re-running with streaming
-            # This allows us to capture all intermediate states
-            partial_trace = []
-            partial_actions = []
-            last_round = 0
-            
-            try:
-                async for state_update in self.graph.astream(initial_state, config=config):
-                    # Each state_update is a dict with node name -> state delta
-                    for node_name, node_state in state_update.items():
-                        if isinstance(node_state, dict):
-                            if "trace" in node_state:
-                                partial_trace = node_state["trace"]
-                            if "actions" in node_state:
-                                partial_actions = node_state["actions"]
-                            if "round" in node_state:
-                                last_round = node_state["round"]
-            except GraphRecursionError:
-                # Expected - we'll hit the limit again
-                pass
-            
-            logger.warning(f"✅ Recovered partial trace: {len(partial_trace)} steps from {last_round} rounds")
-            
-            # Build emergency summary
-            emergency_summary = build_emergency_summary(
-                partial_actions,
-                f"INCOMPLETE - Recursion limit ({self.cfg.recursion_limit}) reached",
-                [
-                    f"Agent executed {last_round} rounds before hitting recursion limit",
-                    f"Captured {len(partial_trace)} trace steps",
-                    "Agent did not converge to a solution - may indicate infinite loop or complex problem"
-                ],
-                error=f"GraphRecursionError: {str(e)}"
-            )
-            
-            return partial_actions, partial_trace, emergency_summary
+            return trace, final_state.get("final_summary")
             
         except KeyboardInterrupt:
-            # Execution interrupted - we can't access the partial state from langgraph
-            # So we log what happened and return empty trace
             logger.warning("Agent loop interrupted by user (Ctrl+C)")
-            logger.warning("⚠️  Note: LangGraph does not preserve partial state on interruption")
-            logger.warning("⚠️  Trace steps completed before interruption cannot be recovered")
             
-            # Return empty trace and an emergency summary
-            emergency_summary = build_emergency_summary(
-                [],
-                "INTERRUPTED - User interrupted execution (Ctrl+C)",
-                ["Agent execution interrupted before completion"],
-                error="KeyboardInterrupt"
+            # Force operational summary from snapshot
+            await self._force_operational_summary(
+                status="INTERRUPTED - User interrupted execution",
+                results=["Agent execution interrupted before completion"],
+                error="KeyboardInterrupt",
+                success=False,
             )
             
             # Re-raise so upstream handlers know we were interrupted
             raise
             
         except Exception as e:
-            # Catch any other unexpected errors and attempt to recover partial trace
-            error_name = type(e).__name__
-            error_msg = str(e)
-            logger.error(f"Agent loop failed with unexpected error {error_name}: {error_msg}")
-            logger.warning("⚠️  Attempting to recover partial trace...")
-            
-            # Try to recover partial trace by streaming (similar to GraphRecursionError handling)
-            partial_trace = []
-            partial_actions = []
-            last_round = 0
-            
-            try:
-                async for state_update in self.graph.astream(initial_state, config=config):
-                    for node_name, node_state in state_update.items():
-                        if isinstance(node_state, dict):
-                            if "trace" in node_state:
-                                partial_trace = node_state["trace"]
-                            if "actions" in node_state:
-                                partial_actions = node_state["actions"]
-                            if "round" in node_state:
-                                last_round = node_state["round"]
-            except Exception:
-                # If streaming also fails, we'll use whatever we have (likely empty)
-                pass
-            
-            logger.warning(f"✅ Recovered partial trace: {len(partial_trace)} steps from {last_round} rounds")
-            
-            # Build emergency summary with error details
-            emergency_summary = build_emergency_summary(
-                partial_actions,
-                f"ERROR - {error_name}",
-                [
-                    f"Agent execution failed with {error_name}",
-                    f"Captured {len(partial_trace)} trace steps before failure",
-                    f"Error: {error_msg}"
-                ],
-                error=f"{error_name}: {error_msg}"
-            )
-            
-            return partial_actions, partial_trace, emergency_summary
+            return await self._handle_agent_failure(e)

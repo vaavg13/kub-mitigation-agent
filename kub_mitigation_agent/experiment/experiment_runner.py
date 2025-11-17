@@ -80,13 +80,12 @@ class MitigationExperimentRunner:
         self, 
         baseline_metrics: Dict[str, Any],
         current_metrics: Dict[str, Any]
-    ) -> tuple[List[Dict[str, Any]], List[Any], Optional[Dict[str, Any]], bool]:
+    ) -> tuple[List[Any], Optional[Dict[str, Any]], bool]:
         """
         Deploy the mitigation agent.
         
         Returns:
-            Tuple of (actions, trace, summary, success)
-            - actions: Legacy list of action dicts
+            Tuple of (trace, summary, success)
             - trace: Complete agent trace with thought-action-observation
             - summary: Operational summary
             - success: Whether agent completed successfully
@@ -101,8 +100,8 @@ class MitigationExperimentRunner:
         
         try:
             # Run agent
-            actions, trace, summary = await self.agent.agent_loop(intent, snapshot)
-            return actions, trace, summary, True
+            trace, summary = await self.agent.agent_loop(intent, snapshot)
+            return trace, summary, True
             
         except Exception as e:
             # Catch any agent errors - the agent should have already built an emergency summary
@@ -132,7 +131,7 @@ class MitigationExperimentRunner:
                 error=f"{error_name}: {str(e)}"
             )
             
-            return [], [], emergency_summary, False
+            return [], emergency_summary, False
 
 
     async def cleanup_all(self):
@@ -220,7 +219,6 @@ class MitigationExperimentRunner:
         """Run the simplified chaos injection and mitigation experiment."""
         results = {
             "success": False,
-            "agent_actions": [],
             "agent_trace": [],
             "error": None,
             "interrupted": False,
@@ -280,14 +278,13 @@ class MitigationExperimentRunner:
 
                 try:
                     # Deploy agent
-                    agent_actions, agent_trace, operational_summary, agent_success = await self.deploy_mitigation_agent(
+                    agent_trace, operational_summary, agent_success = await self.deploy_mitigation_agent(
                         baseline_metrics, 
                         chaos_metrics
                     )
 
                     # Store agent execution results
                     results["agent_execution_duration_seconds"] = time.time() - agent_execution_start_time
-                    results["agent_actions"] = agent_actions
                     results["agent_trace"] = agent_trace
                     results["agent_success"] = agent_success
                     results["operational_summary"] = operational_summary

@@ -24,27 +24,27 @@ class KubernetesAgent:
         intent: str, 
         snapshot: Optional[Dict[str, Any]] = None,
         emergency: bool = False
-    ) -> Tuple[List[Dict[str, Any]], List[AgentTraceStep], Optional[Dict[str, Any]]]:
+    ) -> Tuple[List[AgentTraceStep], Optional[Dict[str, Any]]]:
         """
         Run the agent loop.
         
         Returns:
-            Tuple of (actions, trace, summary)
-            - actions: Legacy list of action dicts (for backward compatibility)
+            Tuple of (trace, summary)
             - trace: Complete list of AgentTraceStep objects with thought-action-observation
             - summary: Final operational summary
         """
         if not self.is_initialized:
             await self.initialize()
         
-        actions, trace, summary = await self._agent.agent_loop(intent, snapshot)
+        trace, summary = await self._agent.agent_loop(intent, snapshot)
         if not summary:
+            action_names = [step.action for step in (trace or []) if getattr(step, "action", None)]
             summary = build_emergency_summary(
-                actions or [], 
+                action_names, 
                 "FAILED - No summary generated", 
                 ["Execution ended without summary"]
             )
-        return actions, trace, summary
+        return trace, summary
 
     async def cleanup(self) -> None:
         await self._agent.cleanup()
