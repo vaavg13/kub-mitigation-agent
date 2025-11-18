@@ -187,7 +187,8 @@ class ExperimentRunner:
         self.exp.baseline_metrics = self.metrics.get_istio_ingress_metrics(duration)
         
         print(f"  ✅ {self.exp.baseline_metrics['success_rate_percent']:.1f}% success, "
-            f"P95: {self.exp.baseline_metrics['p95_latency_seconds']:.3f}s")
+            f"P95: {self.exp.baseline_metrics['p95_latency_seconds']:.3f}s, "
+            f"Requests: {self.exp.baseline_metrics.get('total_requests', 0)}")
 
 
     # ========== PHASE 4: CHAOS ==========
@@ -208,7 +209,8 @@ class ExperimentRunner:
         self.exp.chaos_metrics = self.metrics.get_istio_ingress_metrics(warmup)
         
         print(f"  ⚠️  {self.exp.chaos_metrics['success_rate_percent']:.1f}% success, "
-            f"P95: {self.exp.chaos_metrics['p95_latency_seconds']:.3f}s")
+            f"P95: {self.exp.chaos_metrics['p95_latency_seconds']:.3f}s, "
+            f"Requests: {self.exp.chaos_metrics.get('total_requests', 0)}")
 
 
     # ========== PHASE 5: MITIGATION ==========
@@ -266,7 +268,8 @@ class ExperimentRunner:
         self.exp.recovery_metrics = self.metrics.get_istio_ingress_metrics(duration)
         
         print(f"  ✅ {self.exp.recovery_metrics['success_rate_percent']:.1f}% success, "
-            f"P95: {self.exp.recovery_metrics['p95_latency_seconds']:.3f}s")
+            f"P95: {self.exp.recovery_metrics['p95_latency_seconds']:.3f}s, "
+            f"Requests: {self.exp.recovery_metrics.get('total_requests', 0)}")
 
 
     # ========== PHASE 7: TEARDOWN ==========
@@ -319,9 +322,9 @@ class ExperimentRunner:
         # Print metrics comparison
         cmp = r.get("metrics_comparison", {})
         if cmp:
-            print(f"  Baseline: P95: {cmp.get('baseline_latency_p95', 0):.3f}s, Success: {cmp.get('baseline_success_rate', 0):.1f}%")
-            print(f"  Chaos:    P95: {cmp.get('chaos_latency_p95', 0):.3f}s, Success: {cmp.get('chaos_success_rate', 0):.1f}%")
-            print(f"  Recovery: P95: {cmp.get('recovery_latency_p95', 0):.3f}s, Success: {cmp.get('recovery_success_rate', 0):.1f}%")
+            print(f"  Baseline: P95: {cmp.get('baseline_latency_p95', 0):.3f}s, Success: {cmp.get('baseline_success_rate', 0):.1f}%, Requests: {cmp.get('baseline_request_count', 0)}")
+            print(f"  Chaos:    P95: {cmp.get('chaos_latency_p95', 0):.3f}s, Success: {cmp.get('chaos_success_rate', 0):.1f}%, Requests: {cmp.get('chaos_request_count', 0)}")
+            print(f"  Recovery: P95: {cmp.get('recovery_latency_p95', 0):.3f}s, Success: {cmp.get('recovery_success_rate', 0):.1f}%, Requests: {cmp.get('recovery_request_count', 0)}")
             
             # Latency stats
             base_p95 = cmp.get('baseline_latency_p95', 0)

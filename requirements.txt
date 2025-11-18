@@ -1,23 +1,14 @@
+# Langchain
+langchain
+langchain-community
+langchain-core
+langchain-openai
 langchain-anthropic
 langchain-google-genai
 langchain-xai
 
-
-langchain==0.3.27
-langchain-community==0.3.31
-langchain-core==0.3.79
-langchain-openai==0.3.35
-
-langgraph
-langgraph-checkpoint
-langgraph-prebuilt
-langgraph-sdk
-
-
-
+# Other
 locust
 gevent
 kubernetes
 dotenv
-fastapi
-uvicorn

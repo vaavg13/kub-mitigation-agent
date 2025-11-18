@@ -44,6 +44,8 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         "recovery_latency_p95": recovery["p95_latency_seconds"],
         "baseline_success_rate": baseline["success_rate_percent"],
         "recovery_success_rate": recovery["success_rate_percent"],
+        "baseline_request_count": baseline.get("total_requests", 0),
+        "recovery_request_count": recovery.get("total_requests", 0),
     }
     
     # Calculate recovery indices if chaos metrics available
@@ -55,6 +57,7 @@ def evaluate_metrics_recovery(phase_metrics: Dict[str, Any]) -> Dict[str, Any]:
         metrics_comparison.update({
             "chaos_latency_p95": chaos["p95_latency_seconds"],
             "chaos_success_rate": chaos["success_rate_percent"],
+            "chaos_request_count": chaos.get("total_requests", 0),
         })
         
         # Recovery Index: R = (chaos - recovery) / (chaos - baseline)
