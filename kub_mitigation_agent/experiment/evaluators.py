@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Recovery Evaluator
 Evaluates both metrics recovery and problem location identification accuracy.
@@ -205,12 +204,10 @@ def evaluate_problem_location_match(
     
     # Perform fuzzy matching
     match_found = False
-    matched_name = None
     
     for reported_name in reported_names:
         if _fuzzy_match(expected_target, reported_name):
             match_found = True
-            matched_name = reported_name
             break
     
     return {

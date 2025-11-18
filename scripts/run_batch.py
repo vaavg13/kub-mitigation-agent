@@ -1,3 +1,8 @@
+# Standard library imports first, BUT...
+# We need to monkey patch immediately if we are using gevent/locust
+import gevent.monkey
+gevent.monkey.patch_all()
+
 import asyncio
 import argparse
 import sys
@@ -5,7 +10,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import yaml
 
-from kub_mitigation_agent.experiment.experiment_batch_runner import BatchExperimentRunner
+# Update import to new location
+from kub_mitigation_agent.experiment.runners.batch import BatchExperimentRunner
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
 from kub_mitigation_agent.logging_config import setup_logging
 
@@ -75,4 +81,4 @@ if __name__ == "__main__":
         sys.exit(130)  # Standard exit code for SIGINT
     except Exception as e:
         print(f"\n❌ Batch execution failed with error: {e}")
-        sys.exit(1) 
+        sys.exit(1)

@@ -44,6 +44,3 @@ def setup_logging():
     
     # Setup colorized agent logging
     setup_agent_logging("kub_mitigation_agent.agent.react_agent")
-
-
-

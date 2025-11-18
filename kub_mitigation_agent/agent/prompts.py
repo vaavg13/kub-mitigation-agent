@@ -51,7 +51,7 @@ If Phase 1 or 2 evidence already points to a standard fix, proceed directly to P
 1. ALWAYS: Gather 2-minute time-series for latency, CPU, memory and node CPU.
 2. Check node health and readiness with `kubectl_get nodes -o wide`.
 3. Identify when degradation began, its severity vs baseline, and affected namespaces/deployments.
-
+- In this phase you can execute parallel tool calls.
 ---
 
 ## Phase 2 – Pattern Analysis
@@ -60,6 +60,7 @@ Correlate workload metrics, node health, and service dependencies:
 - Use topology to find impacted and upstream services.  
 - Use `kubectl_get pods -o wide` to determine pod-to-node placement—essential for correlating pod symptoms with node-level resource metrics.
 - **Analyze node CPU metrics from Phase 1:** `prometheus_get_node_timeseries` returns both `pod_cpu` (aggregate pod CPU per node) and `node_cpu` (total host CPU per node). When `node_cpu >> pod_cpu` by 2x+ cores on a node, this indicates CPU consumption outside pod cgroups—a node-level issue affecting all pods on that node.
+- In this pahse you can execute parallel tool calls.
 
 ### Common Evidence Patterns
 | Evidence | Likely Cause | Recommended Action |
@@ -128,7 +129,7 @@ Operation is **COMPLETE** when:
 
 ---
 
-# AVAILABLE FUNCTIONS (summary)
+# AVAILABLE TOOLS (summary)
 - **Planning:** `generate_action_plan`, `generate_operational_summary`
 - **Monitoring:** 
   - `prometheus_get_timeseries` – namespace-scoped pod metrics (latency, CPU, memory)
@@ -174,7 +175,10 @@ generate_operational_summary(
 
 Follow this adaptive, evidence-based methodology to keep services healthy while minimising unnecessary actions. **Pay special attention to the CRITICAL_ANALYSIS from your previous actions to avoid repeating ineffective approaches and to build upon successful patterns.**"""
 
-
+DEFAULT_INTENT = (
+    "Performance degradation detected in the system. "
+    "Investigate the issue and take corrective action to restore service quality."
+)
 
 
 def get_system_prompt() -> str:

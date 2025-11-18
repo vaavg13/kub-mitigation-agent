@@ -18,6 +18,10 @@ class AgentLogFormatter(logging.Formatter):
     - Pretty printing for JSON/dict content
     """
     
+    def __init__(self, show_observations: bool = True):
+        super().__init__()
+        self.show_observations = show_observations
+
     # ANSI color codes
     RESET = '\033[0m'
     BOLD = '\033[1m'
@@ -62,6 +66,8 @@ class AgentLogFormatter(logging.Formatter):
         
         # Handle OBSERVATION messages
         if message.startswith("OBSERVATION:"):
+            if not self.show_observations:
+                return f"{self.OBSERVATION_PREFIX} {self.DIM}(hidden){self.RESET}\n"
             content = message[12:].strip()
             formatted_content = self._format_observation(content)
             return f"{self.OBSERVATION_PREFIX}\n{formatted_content}{self.RESET}\n"
@@ -133,12 +139,13 @@ class AgentLogFormatter(logging.Formatter):
             return content
 
 
-def setup_agent_logging(logger_name: str = "kub_mitigation_agent.agent.react_agent"):
+def setup_agent_logging(logger_name: str = "kub_mitigation_agent.agent.react_agent", show_observations: bool = True):
     """
     Setup colorized logging for the agent.
     
     Args:
         logger_name: Name of the logger to configure (default: react_agent logger)
+        show_observations: Whether to show observation details
     """
     agent_logger = logging.getLogger(logger_name)
     
@@ -147,7 +154,7 @@ def setup_agent_logging(logger_name: str = "kub_mitigation_agent.agent.react_age
     
     # Create console handler with custom formatter
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(AgentLogFormatter())
+    console_handler.setFormatter(AgentLogFormatter(show_observations=show_observations))
     agent_logger.addHandler(console_handler)
     
     # Prevent propagation to avoid duplicate logs

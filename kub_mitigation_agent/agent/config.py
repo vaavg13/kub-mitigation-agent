@@ -26,6 +26,8 @@ class KubernetesAgentConfig(BaseModel):
     agent_timeout: int = Field(default=120)
     recursion_limit: int = Field(default=100)
     full_output: bool = Field(default=True)
+    allow_parallel_tools: bool = Field(default=True)
+    show_observations: bool = Field(default=True)
     # MCP
     mcp_server_command: str = Field(default="node --no-deprecation ./mcp-server-kubernetes/dist/index.js")
     mcp_timeout_seconds: int = Field(default=180)
@@ -60,6 +62,8 @@ class KubernetesAgentConfig(BaseModel):
             agent_timeout=agent.get("timeout", 120),
             recursion_limit=agent.get("recursion_limit", int(os.getenv("AGENT_RECURSION_LIMIT", "100"))),
             full_output=agent.get("full_output", True),
+            allow_parallel_tools=agent.get("allow_parallel_tools", True),
+            show_observations=agent.get("show_observations", True),
 
             # MCP
             mcp_server_command=server_cmd,

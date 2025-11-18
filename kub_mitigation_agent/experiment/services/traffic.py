@@ -121,45 +121,6 @@ class LocustTrafficGenerator:
         """Stop Locust traffic generation (async wrapper)."""
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._stop_traffic_sync)
-    
-    def adjust_traffic_rate(self, new_num_users: int, new_spawn_rate: int = None) -> bool:
-        """Dynamically adjust traffic rate during execution by changing number of users.
-        
-        Args:
-            new_num_users: New number of users to spawn
-            new_spawn_rate: Optional new spawn rate (defaults to config spawn_rate)
-            
-        Returns:
-            True if adjustment succeeded, False otherwise
-        """
-        if not self.is_running or not self.runner:
-            logger.warning("Cannot adjust traffic rate: traffic generator not running")
-            return False
-        
-        if new_spawn_rate is None:
-            new_spawn_rate = self.config.get("spawn_rate", 2)
-        
-        old_users = self.config.get("num_users", 0)
-        
-        # Calculate approximate RPS for logging
-        wait_min = self.config.get("wait_time_min", 1)
-        wait_max = self.config.get("wait_time_max", 3)
-        avg_wait = (wait_min + wait_max) / 2.0
-        old_approx_rps = old_users / avg_wait if avg_wait > 0 else 0
-        new_approx_rps = new_num_users / avg_wait if avg_wait > 0 else 0
-        
-        logger.info(f"Adjusting traffic rate:")
-        logger.info(f"  Users: {old_users} -> {new_num_users}")
-        logger.info(f"  Approximate RPS: {old_approx_rps:.1f} -> {new_approx_rps:.1f}")
-        logger.info(f"  Spawn rate: {new_spawn_rate} users/s")
-        
-        # Update config for future reference
-        self.config["num_users"] = new_num_users
-        
-        # Restart runner with new user count
-        self.runner.start(user_count=new_num_users, spawn_rate=new_spawn_rate)
-        
-        return True
 
 # Keep the old class name for backward compatibility
 TrafficGenerator = LocustTrafficGenerator 

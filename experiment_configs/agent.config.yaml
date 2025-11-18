@@ -1,6 +1,6 @@
 llm:
   provider: openai           # openai | anthropic | google | xai
-  model: gpt-5-mini # gpt-4.1 | gpt-5 | claude-sonnet-4-5-20250929
+  model: gpt-5 # gpt-4.1 | gpt-5 | claude-sonnet-4-5-20250929
   temperature: 0.2
   max_tokens: 4096
   request_timeout: 120
@@ -10,6 +10,8 @@ agent:
   max_rounds: 30
   timeout: 600
   full_output: true
+  show_observations: false
+  allow_parallel_tools: true
 
 mcp:
   server_command: "node --no-deprecation /home/avgerinos/projects/kub-mitigation-agent/mcp/mcp-server-kubernetes/dist/index.js"

@@ -62,7 +62,7 @@ BATCH_CONFIG:
     #   - name: "baseline-1"
     #   - name: "baseline-2"
 
-    # pod_level:
+    pod_level:
       # cpu_stress:
       #   - name: "cpu-one-traffic-ingest-1"
       #     app: "traffic-sensor-ingest-edge-site-1"
@@ -85,22 +85,22 @@ BATCH_CONFIG:
       #     workers: 4
       #     load: 95
 
-      # memory_stress:
-      #   - name: "memory-one-traffic-ingest-1"
-      #     app: "traffic-sensor-ingest-edge-site-1"
-      #     target_mode: "one_pod"
-      #     size: "3GB"
-      #     workers: 1
+      memory_stress:
+        - name: "memory-one-traffic-ingest-1"
+          app: "traffic-sensor-ingest-edge-site-1"
+          target_mode: "one_pod"
+          size: "3GB"
+          workers: 1
       #   - name: "memory-one-signal-control-1"
       #     app: "signal-control-logic-edge-site-1"
       #     target_mode: "one_pod"
       #     size: "3GB"
       #     workers: 2
-      #   - name: "memory-all-traffic-ingest-2"
-      #     app: "traffic-sensor-ingest-edge-site-2"
-      #     target_mode: "all_pods_app"
-      #     size: "3GB"
-      #     workers: 2
+        - name: "memory-all-traffic-ingest-2"
+          app: "traffic-sensor-ingest-edge-site-2"
+          target_mode: "all_pods_app"
+          size: "3GB"
+          workers: 2
       #   - name: "memory-all-cloud-optimization"
       #     app: "central-traffic-optimization-cloud"
       #     target_mode: "all_pods_app"
@@ -121,16 +121,16 @@ BATCH_CONFIG:
         #   app: "public-facing-apps-backend-cloud"
         #   target_mode: "all_pods_app"
 
-    node_level:
-      node_cpu_stress:
+    # node_level:
+      # node_cpu_stress:
         # - name: "node-cpu-cloud-primary"
         #   node: "cloud-worker-1"
         #   load: 90
         #   workers: 6
-        - name: "node-cpu-edge-center"
-          node: "edge-site-1-worker-1"
-          load: 88
-          workers: 5
+        # - name: "node-cpu-edge-center"
+        #   node: "edge-site-1-worker-1"
+        #   load: 88
+        #   workers: 5
         # - name: "node-cpu-edge-outskirt"
         #   node: "edge-site-2-worker-1"
         #   load: 90

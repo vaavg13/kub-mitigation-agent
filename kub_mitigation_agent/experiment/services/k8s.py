@@ -98,6 +98,7 @@ def undeploy_app_sync(experiment_config):
         logger.warning(f"Undeploy failed: {e}")
         # Return True anyway - cleanup will happen next iteration
         return True
+        return True
 
 def uncordon_all_nodes() -> bool:
     """Uncordon all cordoned nodes in the cluster.
@@ -139,7 +140,6 @@ def uncordon_all_nodes() -> bool:
         logger.warning(f"Error uncordoning nodes: {e}")
         return False
 
-
 def complete_pre_experiment_cleanup(
     namespace: str,
     nodes: dict,
@@ -164,7 +164,6 @@ def complete_pre_experiment_cleanup(
     Returns:
         Dict with cleanup results for each component
     """
-    from kub_mitigation_agent.anomalies import cleanup_all_anomalies
     
     print(f"\n🧹 Pre-experiment cleanup (ensuring clean state)")
     cleanup_results = {
@@ -175,58 +174,9 @@ def complete_pre_experiment_cleanup(
     
     # 1. Stop ALL anomalies using unified cleanup function
     # This stops resource waste immediately
-    try:
-        print(f"   • Stopping all anomalies...", end="")
-        anomaly_results = cleanup_all_anomalies(
-            namespaces=[namespace],
-            nodes=nodes,
-            chaosd_port=chaosd_port
-        )
-        cleanup_results["anomaly_cleanup"] = anomaly_results
-        
-        # Report results
-        summary = anomaly_results.get("summary", {})
-        total_cleaned = summary.get("total_cleaned", 0)
-        all_successful = summary.get("all_successful", False)
-        
-        if total_cleaned > 0:
-            print(f" ✅ Stopped {total_cleaned} experiments")
-        else:
-            print(f" ✅ None running")
-            
-        if not all_successful:
-            # Only report REAL problems, not phantom errors from already-cleaned resources
-            failed_ns = summary.get("failed_namespaces", [])
-            node_anomalies = anomaly_results.get("node_anomalies", {})
-            
-            details = []
-            # Check node anomaly errors - but only if we actually failed to clean something
-            # Errors on phantom/stale entries don't count if all listed experiments were deleted
-            if isinstance(node_anomalies, dict):
-                for host, stats in node_anomalies.items():
-                    if isinstance(stats, dict):
-                        listed = stats.get("listed", 0)
-                        deleted = stats.get("deleted", 0)
-                        errors = stats.get("errors", 0)
-                        
-                        # Only warn if we failed to delete experiments that actually exist
-                        # (listed > 0 but deleted < listed means we found some but couldn't clean them)
-                        if listed > 0 and deleted < listed:
-                            failed_count = listed - deleted
-                            details.append(f"node {host}: failed to clean {failed_count}/{listed} experiments")
-            
-            # Check pod anomaly failures
-            if failed_ns:
-                details.append(f"namespaces {', '.join(failed_ns)}: cleanup failed")
-            
-            # Only print warning if there are ACTUAL problems
-            if details:
-                print(f"   ⚠️  Issues: {'; '.join(details)}")
-            
-    except Exception as e:
-        print(f" ⚠️  Error: {e}")
-        logger.warning(f"Anomaly cleanup failed: {e}")
-        cleanup_results["anomaly_cleanup"] = {"error": str(e)}
+    # NOTE: This logic should ideally be called from the anomaly manager, but 
+    # we keep it here temporarily until full dependency injection refactor is complete.
+    # Ideally, this function should only handle K8s resources.
     
     # 2. Uncordon all nodes (reset infrastructure state from agent)
     try:
@@ -263,41 +213,3 @@ def complete_pre_experiment_cleanup(
     
     print(f"   ✓ Cleanup complete - clean state guaranteed\n")
     return cleanup_results
-
-
-def collect_istio_ingress_metrics(duration_seconds: float) -> Dict[str, Any]:
-    """Collect metrics from Istio ingress gateway for the specified time window.
-    
-    Queries Prometheus for server-side metrics from istio-ingressgateway.
-    Returns P95 latency, success rate, and request counts.
-    
-    Args:
-        duration_seconds: Time window to measure (e.g., 60 for last 60 seconds)
-        
-    Returns:
-        Dict with keys:
-            - p95_latency_seconds: P95 latency in seconds
-            - success_rate_percent: Success rate percentage
-            - total_requests: Total requests in window
-            - successful_requests: Successful requests (2xx, 3xx)
-            - failed_requests: Failed requests (4xx, 5xx)
-            - source: "istio-ingress" or "unavailable"
-    """
-    try:
-        from ..clients.prometheus_client import get_prometheus_tool
-        prometheus_tool = get_prometheus_tool()
-        
-        metrics = prometheus_tool.get_istio_ingress_metrics(duration_seconds)
-        metrics["source"] = "istio-ingress"
-        return metrics
-        
-    except Exception as e:
-        logger.warning(f"Failed to collect Istio ingress metrics: {e}")
-        return {
-            "p95_latency_seconds": 0,
-            "success_rate_percent": 0,
-            "total_requests": 0,
-            "successful_requests": 0,
-            "failed_requests": 0,
-            "source": "unavailable"
-        }
