@@ -39,18 +39,19 @@ Phases may be skipped when earlier evidence is conclusive. Always document evide
 
 | Phase | Goal | Typical Tools |
 |-------|------|----------------|
-| **1. Scope & Severity** | Confirm degradation, quantify impact, check node health | `prometheus_get_timeseries`, `prometheus_get_node_timeseries`, `kubectl_get nodes -o wide` |
+| **1. Scope & Severity** | Confirm degradation, quantify impact, check node health | `prometheus_get_ingress_stats`, `prometheus_get_node_cpu_timeseries`, `kubectl_get nodes -o wide` |
 | **2. Pattern Analysis** | Characterize the issue and identify cause | `kubectl_get pods -o wide`, `prometheus_get_service_topology`, `kubectl_get nodes -o wide` |
-| **3. Response & Validation** | Execute fix, validate improvement | `kubectl_patch`, `kubectl_delete`, `kubectl_drain`, `kubectl_cordon`, `sleep_seconds`, `prometheus_get_timeseries` |
+| **3. Response & Validation** | Execute fix, validate improvement | `kubectl_patch`, `kubectl_delete`, `kubectl_drain`, `kubectl_cordon`, `sleep_seconds`, `prometheus_get_*_timeseries` |
 
 If Phase 1 or 2 evidence already points to a standard fix, proceed directly to Phase 3.
 
 ---
 
 ## Phase 1 – Scope & Severity
-1. ALWAYS: Gather 2-minute time-series for latency, CPU, memory and node CPU.
-2. Check node health and readiness with `kubectl_get nodes -o wide`.
-3. Identify when degradation began, its severity vs baseline, and affected namespaces/deployments.
+1. ALWAYS: Check global health with `prometheus_get_ingress_stats` (golden signals).
+2. Gather 2-minute time-series for node CPU and memory to check for infrastructure saturation.
+3. Check node health and readiness with `kubectl_get nodes -o wide`.
+4. Identify when degradation began, its severity vs baseline, and affected namespaces/deployments.
 - In this phase you can execute parallel tool calls.
 ---
 
@@ -59,7 +60,7 @@ Correlate workload metrics, node health, and service dependencies:
 - Quantify anomaly severity (e.g., latency +150%, CPU +90%).  
 - Use topology to find impacted and upstream services.  
 - Use `kubectl_get pods -o wide` to determine pod-to-node placement—essential for correlating pod symptoms with node-level resource metrics.
-- **Analyze node CPU metrics from Phase 1:** `prometheus_get_node_timeseries` returns both `pod_cpu` (aggregate pod CPU per node) and `node_cpu` (total host CPU per node). When `node_cpu >> pod_cpu` by 2x+ cores on a node, this indicates CPU consumption outside pod cgroups—a node-level issue affecting all pods on that node.
+- **Analyze node CPU metrics from Phase 1:** `prometheus_get_node_cpu_timeseries` returns both `pod_cpu` (aggregate pod CPU per node) and `node_cpu` (total host CPU per node). When `node_cpu >> pod_cpu` by 2x+ cores on a node, this indicates CPU consumption outside pod cgroups—a node-level issue affecting all pods on that node.
 - In this pahse you can execute parallel tool calls.
 
 ### Common Evidence Patterns
@@ -132,8 +133,11 @@ Operation is **COMPLETE** when:
 # AVAILABLE TOOLS (summary)
 - **Planning:** `generate_action_plan`, `generate_operational_summary`
 - **Monitoring:** 
-  - `prometheus_get_timeseries` – namespace-scoped pod metrics (latency, CPU, memory)
-  - `prometheus_get_node_timeseries` – returns **two metrics per node**: `pod_cpu` (aggregate of all pods on node) and `node_cpu` (total host CPU usage)
+  - `prometheus_get_ingress_stats` – global success rate, latency, and RPS timeseries (GOLDEN SIGNAL)
+  - `prometheus_get_pod_cpu_timeseries`, `prometheus_get_pod_memory_timeseries`
+  - `prometheus_get_service_latency_timeseries`
+  - `prometheus_get_node_cpu_timeseries` – returns **two metrics per node**: `pod_cpu` (aggregate of all pods on node) and `node_cpu` (total host CPU usage)
+  - `prometheus_get_node_memory_timeseries`
   - `prometheus_get_service_topology` – service dependency map
 - **Kubernetes Ops:** `kubectl_get`, `kubectl_list`, `kubectl_patch`, `kubectl_delete`, `kubectl_drain`, `kubectl_cordon`, `kubectl_uncordon`
   - Note: Use `kubectl_patch` to modify HPA `minReplicas`/`maxReplicas` for scaling (do not use `kubectl_scale` on HPA-managed deployments)
@@ -145,9 +149,9 @@ Operation is **COMPLETE** when:
 ## Pod Failure Detection Example
 ```
 # Phase 1 – confirm issue
-prometheus_get_timeseries(metric_type="latency", namespace="edge", duration="2m")
-prometheus_get_timeseries(metric_type="cpu", namespace="edge", duration="2m")
-# Observation: latency 8s (baseline 2s), CPU 15% (abnormally low) - POD FAILURE PATTERN
+prometheus_get_ingress_stats(duration="2m")
+prometheus_get_pod_cpu_timeseries(namespace="edge", duration="2m")
+# Observation: ingress P95 latency 8s (baseline 2s), CPU 15% (abnormally low) - POD FAILURE PATTERN
 
 # Phase 2 – immediate pod investigation 
 kubectl_get(resourceType="pods", namespace="edge", output="wide")
@@ -158,7 +162,7 @@ kubectl_get(resourceType="pods", namespace="edge", output="wide")
 # Phase 4 – immediate corrective action 
 kubectl_delete(resourceType="pod", name="edge-service-xyz", namespace="edge")
 sleep_seconds(duration=45)
-prometheus_get_timeseries(metric_type="latency", namespace="edge", duration="1m")  # latency now 2.1s
+prometheus_get_ingress_stats(duration="1m")  # latency now 2.1s, success rate 100%
 
 generate_operational_summary(
     objective="Resolve pod failure causing performance degradation",

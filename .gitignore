@@ -24,7 +24,7 @@ DATASET_LOGS_OLD*/
 # APPS/
 yamls/
 docs/
-_PLOTS/
+PLOTS/
 _DRY_TESTS/
 
 # IDE and editor files

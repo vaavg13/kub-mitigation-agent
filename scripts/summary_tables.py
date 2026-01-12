@@ -78,7 +78,7 @@ def compute_recovery_index(baseline: float, chaos: float, recovery: float, *, hi
 		delta = chaos - baseline
 		progress = chaos - recovery
 	if delta <= 0:
-		return 0.0
+		return 100.0
 	return max(0.0, min(100.0, (progress / delta) * 100.0))
 
 
@@ -211,11 +211,21 @@ def summarize_by_index_and_model(df: pd.DataFrame, index_col: str) -> pd.DataFra
 				# Leave empty cells (NaN)
 				row[f"{m} | ID Acc. (%)"] = np.nan
 				row[f"{m} | Success (%)"] = np.nan
+				row[f"{m} | Avg. Latency Recovery (%)"] = np.nan
 				row[f"{m} | Avg. Rounds"] = np.nan
+				row[f"{m} | Min Rounds"] = np.nan
+				row[f"{m} | Max Rounds"] = np.nan
+				row[f"{m} | Avg. Agent Time (min)"] = np.nan
+				row[f"{m} | Avg. Sleep Time (min)"] = np.nan
 				continue
 			row[f"{m} | ID Acc. (%)"] = compute_adjusted_id_acc(g)
 			row[f"{m} | Success (%)"] = g["recovery_success"].mean() * 100.0
+			row[f"{m} | Avg. Latency Recovery (%)"] = g["latency_recovery_pct"].mean()
 			row[f"{m} | Avg. Rounds"] = g["agent_steps"].mean()
+			row[f"{m} | Min Rounds"] = g["agent_steps"].min()
+			row[f"{m} | Max Rounds"] = g["agent_steps"].max()
+			row[f"{m} | Avg. Agent Time (min)"] = g["agent_duration_minutes"].mean()
+			row[f"{m} | Avg. Sleep Time (min)"] = g["agent_sleep_minutes"].mean()
 		rows.append(row)
 
 	out = pd.DataFrame(rows)
@@ -270,14 +280,14 @@ def main() -> None:
 
 	with pd.option_context("display.max_columns", None, "display.width", 200):
 		if APP_MODEL_DF is not None and not APP_MODEL_DF.empty:
-			print("\n=== Agent Performance by Application Type × Model (DataFrame) ===")
-			print(APP_MODEL_DF)
+			print("\n=== Agent Performance by Application Type × Model (CSV) ===")
+			print(APP_MODEL_DF.to_csv(index=False))
 		else:
 			print("\nNo data for App × Model table.")
 
 		if FAULT_MODEL_DF is not None and not FAULT_MODEL_DF.empty:
-			print("\n=== Agent Performance by Fault Type × Model (DataFrame) ===")
-			print(FAULT_MODEL_DF)
+			print("\n=== Agent Performance by Fault Type × Model (CSV) ===")
+			print(FAULT_MODEL_DF.to_csv(index=False))
 		else:
 			print("\nNo data for Fault Type × Model table.")
 
