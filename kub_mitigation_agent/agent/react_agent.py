@@ -16,8 +16,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Base
 from .config import KubernetesAgentConfig
 from .llm_provider import get_llm
 from .prompts import get_system_prompt, DEFAULT_INTENT
-from kub_mitigation_agent.clients.mcp_client import MCPClient
-from .tools import ALL_TOOLS, set_mcp_client, set_warmup_end_timestamp
+from kub_mitigation_agent.mcp import MCPManager, get_kubernetes_config
+from .tools import NON_MCP_TOOLS, set_warmup_end_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -53,46 +53,58 @@ class ReactAgent:
     def __init__(self, config: Optional[KubernetesAgentConfig] = None):
         self.cfg = config or KubernetesAgentConfig()
         self.llm = None
-        self.mcp_client: Optional[MCPClient] = None
+        self.mcp_manager: Optional[MCPManager] = None
         self.is_initialized = False
         
         # Internal state for tracing
         self._trace: List[AgentTraceStep] = []
         self._current_round = 0
 
-        # Tools lookup
-        self._tools_by_name = {t.name: t for t in ALL_TOOLS}
+        # Tools will be populated during initialization
+        self._tools_by_name = {}
 
     async def initialize(self):
-        """Initialize MCP client and LLM connection."""
+        """Initialize MCP manager and LLM connection."""
         if self.is_initialized:
             return
         
         logger.info("Initializing agent...")
         
-        # 1. Initialize MCP Client
-        self.mcp_client = MCPClient(
-            self.cfg.mcp_server_command,
-            response_timeout_seconds=self.cfg.mcp_timeout_seconds,
+        # 1. Setup MCP Manager with server configurations
+        server_configs = get_kubernetes_config()
+        # Future: Add more MCP servers here (prometheus, etc.)
+        
+        self.mcp_manager = MCPManager(
+            server_configs,
+            enable_logging=True,
+            enable_progress=True,
         )
-        await self.mcp_client.start()
-        await self.mcp_client.initialize()
         
-        # 2. Initialize LLM
+        # 2. Get MCP tools (kubectl operations from MCP server)
+        mcp_tools = await self.mcp_manager.get_tools()
+        logger.info(f"Loaded {len(mcp_tools)} MCP tools")
+        
+        # 3. Combine MCP tools with non-MCP tools (prometheus, core utils)
+        all_tools = NON_MCP_TOOLS + mcp_tools
+        logger.info(f"Total tools available: {len(all_tools)}")
+        
+        # 4. Setup tools lookup
+        self._tools_by_name = {t.name: t for t in all_tools}
+        
+        # 5. Initialize LLM with all tools
         llm_base = get_llm(self.cfg)
-        self.llm = llm_base.bind_tools(ALL_TOOLS)
+        self.llm = llm_base.bind_tools(all_tools)
         
-        # 3. Setup Tools (Legacy Global State - to be refactored later)
-        set_mcp_client(self.mcp_client)
+        # 6. Setup warmup timestamp for prometheus queries
         set_warmup_end_timestamp(os.environ.get("KMA_WARMUP_END_TS"))
         
         self.is_initialized = True
         logger.info("Agent initialized successfully")
 
     async def cleanup(self):
-        """Stop MCP client and clean up resources."""
-        if self.mcp_client:
-            await self.mcp_client.stop()
+        """Stop MCP manager and clean up resources."""
+        if self.mcp_manager:
+            await self.mcp_manager.cleanup()
         self.is_initialized = False
 
     async def __aenter__(self):
@@ -136,7 +148,7 @@ class ReactAgent:
         # Configure logger to respect show_observations
         # We need to access the root handler setup or re-configure it
         # For now, we assume setup_agent_logging is called externally or we can try to update it
-        if self.mcp_client: # Just a proxy check if we are running
+        if self.mcp_manager: # Just a proxy check if we are running
              # Re-configure logger if needed, or assume the runner set it up.
              # But the cleanest way is to pass config to the formatter if it was already set up.
              # Since we can't easily access the handler instance without digging, we'll re-run setup

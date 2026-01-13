@@ -7,6 +7,10 @@ langchain-anthropic
 langchain-google-genai
 langchain-xai
 
+# MCP (Model Context Protocol)
+langchain-mcp-adapters
+kubectl-mcp-tool
+
 # Other
 locust
 gevent

@@ -3,6 +3,7 @@
 from pathlib import Path
 from .base import Application
 from ...paths import APPS_DIR, APP_METADATA_DIR
+from ..deployment import SimpleK8sDeploymentManager
 
 
 class HotelReservation(Application):
@@ -30,19 +31,11 @@ class HotelReservation(Application):
             app_dir = APPS_DIR / "hotel-reservation"
         self.app_dir = Path(app_dir)
         
-        # Deployment manager will be initialized lazily to avoid circular imports
-        self._deployment_manager = None
-    
-    @property
-    def deployment_manager(self):
-        """Lazy initialization of deployment manager to avoid circular imports."""
-        if self._deployment_manager is None:
-            from ..deployment import SimpleK8sDeploymentManager
-            self._deployment_manager = SimpleK8sDeploymentManager(
-                str(self.app_dir),
-                self.namespace
-            )
-        return self._deployment_manager
+        # Initialize deployment manager
+        self.deployment_manager = SimpleK8sDeploymentManager(
+            str(self.app_dir),
+            self.namespace
+        )
     
     def deploy(self, wait_for_ready: bool = True) -> bool:
         """
