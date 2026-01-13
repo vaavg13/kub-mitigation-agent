@@ -2,7 +2,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
-from kub_mitigation_agent.clients.prometheus import PrometheusClient, parse_duration
+from kub_mitigation_agent.service.telemetry.prometheus import PrometheusClient, parse_duration
 
 class ExperimentMetrics:
     """

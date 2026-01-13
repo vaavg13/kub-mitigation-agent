@@ -7,7 +7,7 @@ from .experiment_logger import SimpleExperimentLogger
 from .services import DefaultServices, ServiceRegistry
 
 # Import Anomaly Config Generator
-from kub_mitigation_agent.anomalies.anomaly_config_generator import AnomalyConfigGenerator, DEFAULT_SEED
+from kub_mitigation_agent.generators.fault.anomaly_config_generator import AnomalyConfigGenerator, DEFAULT_SEED
 
 class BatchExperimentRunner:
     """Coordinates multiple experiments in a batch."""

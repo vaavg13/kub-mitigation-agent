@@ -4,15 +4,15 @@ from typing import Dict, Any, List
 from ..core.experiment import Experiment
 from .runner import ExperimentRunner
 from ..logger import SimpleExperimentLogger
-from kub_mitigation_agent.experiment.services.metrics import ExperimentMetrics
-from kub_mitigation_agent.clients.prometheus import get_prometheus_client
-import kub_mitigation_agent.experiment.services.k8s as k8s_module
-from kub_mitigation_agent.experiment.services.traffic import LocustTrafficGenerator
-import kub_mitigation_agent.anomalies as anomaly_pkg
+from kub_mitigation_agent.service.telemetry.metrics import ExperimentMetrics
+from kub_mitigation_agent.service.telemetry.prometheus import get_prometheus_client
+import kub_mitigation_agent.service.k8s as k8s_module
+from kub_mitigation_agent.generators.workload import LocustTrafficGenerator
+import kub_mitigation_agent.generators.fault as anomaly_pkg
 from kub_mitigation_agent.agent.react_agent import ReactAgent
 
 # Import Anomaly Config Generator
-from kub_mitigation_agent.anomalies.anomaly_config_generator import AnomalyConfigGenerator, DEFAULT_SEED
+from kub_mitigation_agent.generators.fault.anomaly_config_generator import AnomalyConfigGenerator, DEFAULT_SEED
 
 class BatchExperimentRunner:
     """Coordinates multiple experiments in a batch."""

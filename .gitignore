@@ -44,3 +44,7 @@ Thumbs.db
 
 # Vagrant
 .vagrant/
+
+REPORTS/
+AIOpsLab/
+DeathStarBench/

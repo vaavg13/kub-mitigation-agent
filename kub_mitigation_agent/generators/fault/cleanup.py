@@ -39,7 +39,7 @@ def cleanup_all_anomalies(
         }
         
     Example:
-        >>> from kub_mitigation_agent.anomalies import cleanup_all_anomalies
+        >>> from kub_mitigation_agent.generators.fault import cleanup_all_anomalies
         >>> results = cleanup_all_anomalies(
         ...     namespaces=["app-iot-gateway"],
         ...     nodes={"worker1": "192.168.1.10"},

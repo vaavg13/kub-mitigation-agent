@@ -9,7 +9,7 @@ import subprocess
 import logging
 from typing import Dict, Any
 from kubernetes import client, config
-from mu_bench.deployers.manager import K8sDeploymentManager
+from kub_mitigation_agent.service.deployment import SimpleK8sDeploymentManager
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,12 @@ def deploy_fresh_app_sync(experiment_config):
     
     try:
         print(f"Deploying {app_name}...")
-        mgr = K8sDeploymentManager.from_deployment_dir(app_dir)
-        mgr.deploy()
+        mgr = SimpleK8sDeploymentManager.from_deployment_dir(app_dir)
+        success = mgr.deploy()
+        
+        if not success:
+            print(f"❌ Deployment failed")
+            return False, ""
         
         print(f"Waiting for pods to be ready...")
         if not wait_for_pods_ready_sync(mgr.namespace, timeout=300):
@@ -87,17 +91,20 @@ def undeploy_app_sync(experiment_config):
     
     try:
         print(f"Undeploying {app_name}...")
-        mgr = K8sDeploymentManager.from_deployment_dir(app_dir)
-        mgr.undeploy()
+        mgr = SimpleK8sDeploymentManager.from_deployment_dir(app_dir)
+        success = mgr.undeploy()
         
-        print(f"✅ Application undeployed")
+        if success:
+            print(f"✅ Application undeployed")
+        else:
+            print(f"⚠️  Undeployment had issues (non-critical)")
+        
         return True
         
     except Exception as e:
         print(f"⚠️  Undeployment error (non-critical): {e}")
         logger.warning(f"Undeploy failed: {e}")
         # Return True anyway - cleanup will happen next iteration
-        return True
         return True
 
 def uncordon_all_nodes() -> bool:

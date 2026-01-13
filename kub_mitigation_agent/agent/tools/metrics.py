@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Callable
 from langchain.tools import tool
 
-from kub_mitigation_agent.clients.prometheus import get_prometheus_client, parse_duration
+from kub_mitigation_agent.service.telemetry.prometheus import get_prometheus_client, parse_duration
 
 logger = logging.getLogger(__name__)
 

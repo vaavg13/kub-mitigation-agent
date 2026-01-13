@@ -33,7 +33,7 @@ class SimpleExperimentLogger:
     def log_experiment(self, experiment: Experiment) -> Path:
         """Log experiment to JSON file."""
         from .services.metrics import ExperimentMetrics
-        from kub_mitigation_agent.clients.prometheus import get_prometheus_client
+        from kub_mitigation_agent.service.telemetry.prometheus import get_prometheus_client
         
         # 1. Get base data
         log_data = experiment.to_dict()

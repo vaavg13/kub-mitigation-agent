@@ -3,13 +3,13 @@ import time
 from typing import Optional, Any
 from datetime import datetime, timezone
 from ..core.experiment import Experiment
-import kub_mitigation_agent.experiment.services.k8s as k8s_module
-from kub_mitigation_agent.experiment.services.traffic import LocustTrafficGenerator
-from kub_mitigation_agent.anomalies import cleanup_all_anomalies
+import kub_mitigation_agent.service.k8s as k8s_module
+from kub_mitigation_agent.generators.workload import LocustTrafficGenerator
+from kub_mitigation_agent.generators.fault import cleanup_all_anomalies
 from kub_mitigation_agent.agent.react_agent import ReactAgent
-import kub_mitigation_agent.anomalies as anomaly_pkg
-from kub_mitigation_agent.experiment.services.metrics import ExperimentMetrics
-from kub_mitigation_agent.clients.prometheus import get_prometheus_client
+import kub_mitigation_agent.generators.fault as anomaly_pkg
+from kub_mitigation_agent.service.telemetry.metrics import ExperimentMetrics
+from kub_mitigation_agent.service.telemetry.prometheus import get_prometheus_client
 from ..evaluators import evaluate_metrics_recovery, evaluate_problem_location_match
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
 
