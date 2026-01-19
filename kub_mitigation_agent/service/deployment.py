@@ -1,8 +1,13 @@
 """
-Simple Kubernetes Deployment Manager
-Replaces mu_bench dependency for deploying real microservice applications.
+DEPRECATED: Simple Kubernetes Deployment Manager
+
+This module is deprecated and will be removed in a future version.
+Use the new Application classes (e.g., HotelReservation) with kubectl/helm wrappers instead.
+
+Legacy code for deploying real microservice applications.
 """
 
+import warnings
 import logging
 import subprocess
 import time
@@ -13,6 +18,13 @@ import yaml
 from kubernetes import client, config
 
 logger = logging.getLogger(__name__)
+
+warnings.warn(
+    "deployment.py (SimpleK8sDeploymentManager) is deprecated. "
+    "Use Application classes (e.g., HotelReservation) with kubectl/helm wrappers instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class SimpleK8sDeploymentManager:

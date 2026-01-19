@@ -1,9 +1,10 @@
 """Hotel Reservation application class with deployment logic."""
 
-from pathlib import Path
+import time
 from .base import Application
-from ...paths import APPS_DIR, APP_METADATA_DIR
-from ..deployment import SimpleK8sDeploymentManager
+from ..kubectl import KubeCtl
+from ..helm import Helm
+from ...paths import HOTEL_RESERVATION_METADATA
 
 
 class HotelReservation(Application):
@@ -14,74 +15,88 @@ class HotelReservation(Application):
     microservices application from DeathStarBench.
     """
     
-    def __init__(self, app_dir: str = None):
-        """
-        Initialize Hotel Reservation application.
+    def __init__(self):
+        """Initialize Hotel Reservation application."""
+        super().__init__(HOTEL_RESERVATION_METADATA)
+        self.kubectl = KubeCtl()
+        self.helm_deploy = True  # Use Helm charts by default
         
-        Args:
-            app_dir: Optional path to app directory.
-                    Defaults to APPS/real-apps/hotel-reservation
-        """
-        # Load metadata
-        metadata_file = APP_METADATA_DIR / "hotel_reservation.yaml"
-        super().__init__(metadata_file)
+        self.load_app_json()
+        self.create_namespace()
+    
+    def load_app_json(self):
+        """Load application-specific metadata."""
+        super().load_app_json()
+        metadata = self.get_app_json()
+        self.frontend_service = metadata.get("frontend_service", "frontend")
+        self.frontend_port = metadata.get("frontend_port", 5000)
+    
+    def deploy(self):
+        """Deploy the application (Helm or K8s based on helm_deploy flag)."""
+        if self.helm_deploy:
+            self.deploy_helm()
+        else:
+            self.deploy_k8s()
+    
+    def deploy_k8s(self):
+        """Deploy using raw Kubernetes configurations."""
+        print(f"Deploying Kubernetes configurations in namespace: {self.namespace}")
+        self.kubectl.apply_configs(self.namespace, str(self.k8s_deploy_path))
+        self.kubectl.wait_for_ready(self.namespace)
+    
+    def deploy_without_wait(self):
+        """Deploy the Kubernetes configurations without waiting for ready."""
+        print(f"Deploying Kubernetes configurations in namespace: {self.namespace}")
+        self.kubectl.apply_configs(self.namespace, str(self.k8s_deploy_path))
+        print(f"Waiting for stability...")
+        time.sleep(30)
+    
+    def deploy_helm(self):
+        """Deploy using Helm chart."""
+        print(f"Deploying with Helm in namespace: {self.namespace}")
+        Helm.install(**self.helm_configs)
+        Helm.assert_if_deployed(self.helm_configs["namespace"])
+    
+    def delete(self):
+        """Delete the application (Helm or K8s based on helm_deploy flag)."""
+        if self.helm_deploy:
+            self.delete_helm()
+        else:
+            self.delete_k8s()
+    
+    def delete_k8s(self):
+        """Delete using raw Kubernetes configurations."""
+        self.kubectl.delete_configs(self.namespace, str(self.k8s_deploy_path))
+    
+    def delete_helm(self):
+        """Delete the Helm deployment."""
+        Helm.uninstall(**self.helm_configs)
+    
+    def cleanup(self):
+        """Delete the entire namespace for the hotel reservation application."""
+        self.kubectl.delete_namespace(self.namespace)
+        time.sleep(10)
         
-        # Set app directory
-        if app_dir is None:
-            app_dir = APPS_DIR / "hotel-reservation"
-        self.app_dir = Path(app_dir)
-        
-        # Initialize deployment manager
-        self.deployment_manager = SimpleK8sDeploymentManager(
-            str(self.app_dir),
-            self.namespace
+        # Clean up persistent volumes
+        pvs = self.kubectl.exec_command(
+            f"kubectl get pv --no-headers | grep '{self.namespace}' | awk '{{print $1}}'"
+        ).splitlines()
+
+        for pv in pvs:
+            if pv.strip():
+                # Check if the PV is in a 'Terminating' state and remove the finalizers if necessary
+                self._remove_pv_finalizers(pv)
+                delete_command = f"kubectl delete pv {pv}"
+                delete_result = self.kubectl.exec_command(delete_command)
+                print(f"Deleted PersistentVolume {pv}: {delete_result.strip()}")
+        time.sleep(5)
+    
+    def _remove_pv_finalizers(self, pv_name: str):
+        """Remove finalizers from the PersistentVolume to prevent it from being stuck in a 'Terminating' state."""
+        patch_command = (
+            f'kubectl patch pv {pv_name} -p \'{{"metadata":{{"finalizers":null}}}}\''
         )
-    
-    def deploy(self, wait_for_ready: bool = True) -> bool:
-        """
-        Deploy the Hotel Reservation application.
-        
-        Args:
-            wait_for_ready: Whether to wait for pods to be ready
-        
-        Returns:
-            bool: True if deployment succeeded
-        """
-        print(f"📦 Deploying {self.name}...")
-        print(f"   Namespace: {self.namespace}")
-        print(f"   App directory: {self.app_dir}")
-        
-        success = self.deployment_manager.deploy()
-        
-        if success and wait_for_ready:
-            print("⏳ Waiting for pods to be ready...")
-            # Wait logic handled by deployment_manager
-        
-        if success:
-            print(f"✅ {self.name} deployed successfully")
-        else:
-            print(f"❌ {self.name} deployment failed")
-        
-        return success
-    
-    def undeploy(self) -> bool:
-        """
-        Undeploy the Hotel Reservation application.
-        
-        Deletes the namespace and all resources.
-        
-        Returns:
-            bool: True if undeployment succeeded
-        """
-        print(f"🗑️  Undeploying {self.name}...")
-        success = self.deployment_manager.undeploy()
-        
-        if success:
-            print(f"✅ {self.name} undeployed successfully")
-        else:
-            print(f"❌ {self.name} undeployment failed")
-        
-        return success
+        _ = self.kubectl.exec_command(patch_command)
     
     def is_deployed(self) -> bool:
         """
@@ -90,7 +105,11 @@ class HotelReservation(Application):
         Returns:
             bool: True if deployed and running
         """
-        return self.deployment_manager.is_deployed()
+        try:
+            pods = self.kubectl.list_pods(self.namespace)
+            return len(pods.items) > 0
+        except:
+            return False
     
     def get_services(self) -> list:
         """
@@ -99,16 +118,11 @@ class HotelReservation(Application):
         Returns:
             List of service names
         """
-        return self.deployment_manager.get_services()
-    
-    def get_deployments(self) -> list:
-        """
-        Get list of deployments in the application.
-        
-        Returns:
-            List of deployment names
-        """
-        return self.deployment_manager.get_deployments()
+        try:
+            services = self.kubectl.list_services(self.namespace)
+            return [svc.metadata.name for svc in services.items]
+        except:
+            return []
     
     def get_frontend_url(self, ingress_host: str = None) -> str:
         """
@@ -124,4 +138,4 @@ class HotelReservation(Application):
             return ingress_host
         
         # Default: assume service is exposed
-        return f"http://frontend.{self.namespace}:5000"
+        return f"http://{self.frontend_service}.{self.namespace}:{self.frontend_port}"

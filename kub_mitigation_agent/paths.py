@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent  # kub_mitigation_agent/
 PROJECT_ROOT = BASE_DIR.parent              # kub-mitigation-agent/
 
 # Application directories
-APPS_DIR = PROJECT_ROOT / "APPS" / "real-apps"
+TARGET_MICROSERVICES = PROJECT_ROOT / "app-charts"
 DEATHSTARBENCH_DIR = PROJECT_ROOT / "DeathStarBench"
 
 # Service directories
@@ -21,7 +21,7 @@ FAULT_GENERATORS_DIR = GENERATORS_DIR / "fault"
 WORKLOAD_GENERATORS_DIR = GENERATORS_DIR / "workload"
 
 # Specific app metadata files
-HOTEL_RESERVATION_METADATA = APP_METADATA_DIR / "hotel_reservation.yaml"
+HOTEL_RESERVATION_METADATA = APP_METADATA_DIR / "hotel_reservation.json"
 
 # Configuration directories
 CONFIG_DIR = PROJECT_ROOT / "experiment_configs"

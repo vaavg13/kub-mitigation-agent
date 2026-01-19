@@ -13,7 +13,7 @@ class ApplicationRegistry:
         Initialize registry.
         
         Args:
-            metadata_dir: Directory containing metadata YAML files.
+            metadata_dir: Directory containing metadata JSON files.
                          Defaults to apps/metadata/ in package.
         """
         if metadata_dir is None:
@@ -28,10 +28,10 @@ class ApplicationRegistry:
         if not self.metadata_dir.exists():
             return
         
-        for metadata_file in self.metadata_dir.glob("*.yaml"):
+        for metadata_file in self.metadata_dir.glob("*.json"):
             app_id = metadata_file.stem
             try:
-                app = Application(metadata_file)
+                app = Application(str(metadata_file))
                 self._apps[app_id] = app
             except Exception as e:
                 print(f"Warning: Failed to load app metadata {metadata_file}: {e}")

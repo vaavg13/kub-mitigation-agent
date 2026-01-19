@@ -9,96 +9,78 @@ import subprocess
 import logging
 from typing import Dict, Any
 from kubernetes import client, config
-from kub_mitigation_agent.service.deployment import SimpleK8sDeploymentManager
+from kub_mitigation_agent.service.kubectl import KubeCtl
+from kub_mitigation_agent.service.apps import HotelReservation
 
 logger = logging.getLogger(__name__)
 
 def wait_for_pods_ready_sync(namespace: str, timeout: int = 300) -> bool:
-    """Wait for all pods in namespace to be ready (synchronous version)."""
-    config.load_kube_config()
-    k8s_core_api = client.CoreV1Api()
+    """
+    Wait for all pods in namespace to be ready (synchronous version).
     
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            pods = k8s_core_api.list_namespaced_pod(namespace=namespace)
-            if not pods.items:
-                time.sleep(5)
-                continue
-                
-            ready_count = 0
-            for pod in pods.items:
-                if pod.status.conditions:
-                    for condition in pod.status.conditions:
-                        if condition.type == 'Ready' and condition.status == 'True':
-                            ready_count += 1
-                            break
-            
-            if ready_count == len(pods.items):
-                print(f"✅ All {ready_count} pods ready in {namespace}")
-                return True
-                
-            print(f"⏳ Waiting... {ready_count}/{len(pods.items)} pods ready")
-            time.sleep(5)
-            
-        except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(5)
-    
-    print(f"❌ Timeout waiting for pods in {namespace}")
-    return False
+    Args:
+        namespace: Kubernetes namespace
+        timeout: Maximum wait time in seconds
+        
+    Returns:
+        True if all pods ready, False if timeout
+    """
+    kubectl = KubeCtl()
+    return kubectl.wait_for_ready(namespace, sleep=5, max_wait=timeout)
 
 def deploy_fresh_app_sync(experiment_config):
     """
-    Deploy fresh application.
+    Deploy fresh application using new Application classes.
+    
+    Args:
+        experiment_config: Experiment configuration dict
+        
+    Returns:
+        Tuple of (success: bool, namespace: str)
     """
     if not experiment_config["test_settings"]["deploy_fresh_app"]:
         print("Skipping fresh app deployment (disabled in config)")
         return True, ""
     
-    # Use namespace from config to determine app name
-    app_name = experiment_config["namespace"]
-    app_dir = f"{experiment_config['app_directory']}/{app_name}"
+    namespace = experiment_config["namespace"]
     
     try:
-        print(f"Deploying {app_name}...")
-        mgr = SimpleK8sDeploymentManager.from_deployment_dir(app_dir)
-        success = mgr.deploy()
+        print(f"Deploying application to namespace: {namespace}...")
         
-        if not success:
-            print(f"❌ Deployment failed")
-            return False, ""
+        # Use HotelReservation app (can be extended to support other apps)
+        app = HotelReservation()
         
-        print(f"Waiting for pods to be ready...")
-        if not wait_for_pods_ready_sync(mgr.namespace, timeout=300):
-            print(f"❌ Pods failed to become ready")
-            return False, ""
+        # Deploy the application
+        app.deploy()
         
         print(f"✅ Application deployed successfully")
-        return True, mgr.namespace
+        return True, app.namespace
         
     except Exception as e:
         print(f"❌ Deployment error: {e}")
-        logger.error(f"Deployment failed: {e}")
+        logger.error(f"Deployment failed: {e}", exc_info=True)
         return False, ""
 
 def undeploy_app_sync(experiment_config):
     """
-    Undeploy application (minimal cleanup).
+    Undeploy application (minimal cleanup) using new Application classes.
+    
+    Args:
+        experiment_config: Experiment configuration dict
+        
+    Returns:
+        True (always, as cleanup will happen in pre-experiment phase)
     """
-    app_name = experiment_config["namespace"]
-    app_dir = f"{experiment_config['app_directory']}/{app_name}"
+    namespace = experiment_config["namespace"]
     
     try:
-        print(f"Undeploying {app_name}...")
-        mgr = SimpleK8sDeploymentManager.from_deployment_dir(app_dir)
-        success = mgr.undeploy()
+        print(f"Undeploying application from namespace: {namespace}...")
         
-        if success:
-            print(f"✅ Application undeployed")
-        else:
-            print(f"⚠️  Undeployment had issues (non-critical)")
+        # Use HotelReservation app
+        app = HotelReservation()
+        app.delete()
         
+        print(f"✅ Application undeployed")
         return True
         
     except Exception as e:
