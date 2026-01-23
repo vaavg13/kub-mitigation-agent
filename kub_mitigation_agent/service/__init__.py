@@ -18,14 +18,10 @@ from .apps import HotelReservation, Application, get_app
 from .kubectl import KubeCtl
 from .helm import Helm
 
-# DEPRECATED - kept for backward compatibility
-from .deployment import SimpleK8sDeploymentManager
-
 __all__ = [
     "HotelReservation",
     "Application",
     "get_app",
     "KubeCtl",
     "Helm",
-    "SimpleK8sDeploymentManager",  # DEPRECATED
 ]

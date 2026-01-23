@@ -19,7 +19,6 @@ class HotelReservation(Application):
         """Initialize Hotel Reservation application."""
         super().__init__(HOTEL_RESERVATION_METADATA)
         self.kubectl = KubeCtl()
-        self.helm_deploy = True  # Use Helm charts by default
         
         self.load_app_json()
         self.create_namespace()
@@ -32,41 +31,29 @@ class HotelReservation(Application):
         self.frontend_port = metadata.get("frontend_port", 5000)
     
     def deploy(self):
-        """Deploy the application (Helm or K8s based on helm_deploy flag)."""
-        if self.helm_deploy:
-            self.deploy_helm()
-        else:
-            self.deploy_k8s()
-    
-    def deploy_k8s(self):
-        """Deploy using raw Kubernetes configurations."""
-        print(f"Deploying Kubernetes configurations in namespace: {self.namespace}")
-        self.kubectl.apply_configs(self.namespace, str(self.k8s_deploy_path))
-        self.kubectl.wait_for_ready(self.namespace)
-    
-    def deploy_without_wait(self):
-        """Deploy the Kubernetes configurations without waiting for ready."""
-        print(f"Deploying Kubernetes configurations in namespace: {self.namespace}")
-        self.kubectl.apply_configs(self.namespace, str(self.k8s_deploy_path))
-        print(f"Waiting for stability...")
-        time.sleep(30)
+        """Deploy the application using Helm."""
+        self.deploy_helm()
     
     def deploy_helm(self):
         """Deploy using Helm chart."""
         print(f"Deploying with Helm in namespace: {self.namespace}")
+        
+        # Ensure namespace exists with proper labels before Helm install
+        self.create_namespace()
+        
+        # Apply Istio injection label if enabled (ensure it's set every time)
+        if self.istio_injection_enabled:
+            print(f"Applying istio-injection label to namespace {self.namespace}")
+            label_cmd = f"kubectl label namespace {self.namespace} istio-injection=enabled --overwrite"
+            result = self.kubectl.exec_command(label_cmd)
+            print(f"Istio injection label applied: {result.strip()}")
+        
         Helm.install(**self.helm_configs)
         Helm.assert_if_deployed(self.helm_configs["namespace"])
     
     def delete(self):
-        """Delete the application (Helm or K8s based on helm_deploy flag)."""
-        if self.helm_deploy:
-            self.delete_helm()
-        else:
-            self.delete_k8s()
-    
-    def delete_k8s(self):
-        """Delete using raw Kubernetes configurations."""
-        self.kubectl.delete_configs(self.namespace, str(self.k8s_deploy_path))
+        """Delete the application (Helm)."""
+        self.delete_helm()
     
     def delete_helm(self):
         """Delete the Helm deployment."""

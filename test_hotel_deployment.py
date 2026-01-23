@@ -4,6 +4,8 @@ from kub_mitigation_agent.service.apps.hotel_reservation import HotelReservation
 app = HotelReservation()
 
 # Deploy using Helm
+
+app.cleanup()
 app.deploy()  # This will call deploy_helm() internally
 
 # Check status

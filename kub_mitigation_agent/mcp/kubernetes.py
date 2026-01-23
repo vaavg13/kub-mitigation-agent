@@ -3,7 +3,6 @@
 Kubernetes MCP Server Configuration (Node.js based)
 
 Provides configuration for connecting to mcp-server-kubernetes.
-This is a Node.js/TypeScript based server that's more mature and actively maintained.
 
 Installation:
     npx -y mcp-server-kubernetes  (no install needed!)
@@ -19,11 +18,8 @@ Features:
     - Non-destructive mode for read-only access
     - Troubleshooting prompt (k8s-diagnose)
     
-Advantages over kubectl-mcp-tool:
-    - No stdout logging issues (works without wrapper)
-    - More features (Helm, exec, port-forward)
-    - Better maintained (1.3k stars, v3.1.1)
-    - No Python dependency conflicts
+Note:
+    This uses the Node.js MCP server from mcp-server-kubernetes.
 """
 
 import subprocess
@@ -54,8 +50,7 @@ def get_kubernetes_config(
         >>> # Read-only mode - no delete, no drain, etc.
     
     Note:
-        This server uses npx and doesn't require installation.
-        Much better than kubectl-mcp-tool - no logging issues!
+        Uses the Node.js MCP server from mcp-server-kubernetes.
     """
     if transport == "stdio":
         config = {

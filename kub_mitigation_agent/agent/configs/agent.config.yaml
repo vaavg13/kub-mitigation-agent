@@ -14,5 +14,5 @@ agent:
   allow_parallel_tools: true
 
 mcp:
-  server_command: "node --no-deprecation /home/avgerinos/projects/kub-mitigation-agent/mcp/mcp-server-kubernetes/dist/index.js"
+  server_command: "npx -y mcp-server-kubernetes"
   timeout_seconds: 600  # 10 minutes - kubectl operations capped at 9 minutes

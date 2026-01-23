@@ -29,7 +29,7 @@ class KubernetesAgentConfig(BaseModel):
     allow_parallel_tools: bool = Field(default=True)
     show_observations: bool = Field(default=True)
     # MCP
-    mcp_server_command: str = Field(default="node --no-deprecation ./mcp-server-kubernetes/dist/index.js")
+    mcp_server_command: str = Field(default="npx -y mcp-server-kubernetes")
     mcp_timeout_seconds: int = Field(default=180)
 
     @classmethod

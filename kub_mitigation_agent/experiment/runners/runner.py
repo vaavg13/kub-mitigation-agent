@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from ..core.experiment import Experiment
 import kub_mitigation_agent.service.k8s as k8s_module
 from kub_mitigation_agent.generators.workload import LocustTrafficGenerator
+from kub_mitigation_agent.paths import HOTEL_RESERVATION_METADATA
+import json
 from kub_mitigation_agent.generators.fault import cleanup_all_anomalies
 from kub_mitigation_agent.agent.react_agent import ReactAgent
 import kub_mitigation_agent.generators.fault as anomaly_pkg
@@ -51,6 +53,8 @@ class ExperimentRunner:
         self.traffic_generator_factory = traffic_generator_factory if traffic_generator_factory is not None else LocustTrafficGenerator
         self.anomaly_manager = anomaly_manager if anomaly_manager is not None else anomaly_pkg
         self.agent_class = agent_class if agent_class is not None else ReactAgent
+
+        self._ensure_traffic_config()
     
     async def run(self) -> Experiment:
         """
@@ -309,6 +313,26 @@ class ExperimentRunner:
             print(f"  ⚠️  Undeploy: {e}")
         
         print(f"  ✅ Complete")
+
+    def _ensure_traffic_config(self) -> None:
+        """Populate traffic_config from app metadata when missing."""
+        traffic_config = self.exp.config.get("traffic_config", {})
+        if traffic_config.get("host"):
+            return
+
+        # Default to Hotel Reservation metadata for now (avoid app init side effects)
+        with open(HOTEL_RESERVATION_METADATA, "r") as file:
+            metadata = json.load(file)
+        workload = metadata.get("Workload", {})
+
+        self.exp.config["traffic_config"] = {
+            "workload_pattern": workload.get("profile", "hotel_reservation"),
+            "host": workload.get("host", "http://localhost:8080"),
+            "num_users": workload.get("default_users", 10),
+            "spawn_rate": workload.get("spawn_rate", 2),
+            "wait_time_min": workload.get("wait_time_min", 1),
+            "wait_time_max": workload.get("wait_time_max", 3),
+        }
     
     def _print_summary(self):
         """Print experiment summary."""

@@ -71,7 +71,7 @@ class ReactAgent:
         logger.info("Initializing agent...")
         
         # 1. Setup MCP Manager with server configurations
-        server_configs = get_kubernetes_config()
+        server_configs = get_kubernetes_config(custom_command=self.cfg.mcp_server_command)
         # Future: Add more MCP servers here (prometheus, etc.)
         
         self.mcp_manager = MCPManager(

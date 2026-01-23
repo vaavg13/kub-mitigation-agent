@@ -9,10 +9,9 @@
     ],
     "Helm Config": {
         "release_name": "hotel-reservation",
-        "chart_path": "hotelReservation/hotelreservation",
+        "chart_path": "hotelreservation",
         "namespace": "hotel-reservation"
     },
-    "K8S Deploy Path": "hotelReservation-k8s",
     "Critical Services": [
         "frontend",
         "search",
@@ -25,11 +24,28 @@
     ],
     "Workload": {
         "profile": "hotel_reservation",
+        "host": "http://localhost:8080",
         "default_users": 10,
         "spawn_rate": 2,
         "wait_time_min": 1,
         "wait_time_max": 3
     },
+    "Experiment": {
+        "test_settings": {
+            "deploy_fresh_app": true
+        },
+        "warmup_duration": 10,
+        "baseline_duration": 30,
+        "chaos_warmup_duration": 30,
+        "recovery_duration": 30,
+        "batch_settings": {
+            "random_seed": 420
+        },
+        "chaosd": {
+            "port": 31767
+        }
+    },
+    "Istio Injection": true,
     "frontend_service": "frontend",
     "frontend_port": 5000
 }

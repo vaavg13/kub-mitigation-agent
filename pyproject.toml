@@ -19,7 +19,6 @@ dependencies = [
     "gevent",
     "kubernetes",
     "python-dotenv",
-    "mu-bench",
     "gevent"
 ]
 

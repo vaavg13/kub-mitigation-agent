@@ -1,7 +1,6 @@
-"""Base Application class for microservice applications."""
+"""Base Application class for microservice applications (Helm-only)."""
 
 import json
-from pathlib import Path
 from typing import Dict, Any, Optional
 from kub_mitigation_agent.paths import TARGET_MICROSERVICES
 
@@ -23,15 +22,13 @@ class Application:
         self.config_file = config_file
         self.name: Optional[str] = None
         self.namespace: Optional[str] = None
-        self.helm_deploy: bool = True
         self.helm_configs: Dict[str, Any] = {}
-        self.k8s_deploy_path: Optional[Path] = None
-        self.docker_deploy_path: Optional[Path] = None
         
-        # Additional attributes for backward compatibility
+        # Additional attributes
         self.description: Optional[str] = None
         self.workload_config: Dict[str, Any] = {}
         self.observability_config: Dict[str, Any] = {}
+        self.istio_injection_enabled: bool = False
     
     def load_app_json(self):
         """
@@ -45,6 +42,7 @@ class Application:
         self.name = metadata["Name"]
         self.namespace = metadata["Namespace"]
         self.description = metadata.get("Desc", "")
+        self.istio_injection_enabled = bool(metadata.get("Istio Injection", False))
         
         if "Helm Config" in metadata:
             self.helm_configs = metadata["Helm Config"]
@@ -52,12 +50,6 @@ class Application:
             
             if chart_path and not self.helm_configs.get("remote_chart", False):
                 self.helm_configs["chart_path"] = str(TARGET_MICROSERVICES / chart_path)
-
-        if "K8S Deploy Path" in metadata:
-            self.k8s_deploy_path = TARGET_MICROSERVICES / metadata["K8S Deploy Path"]
-        
-        if "Docker Deploy Path" in metadata:
-            self.docker_deploy_path = TARGET_MICROSERVICES / metadata["Docker Deploy Path"]
         
         # Load workload and observability configs if present
         if "Workload" in metadata:
@@ -109,6 +101,12 @@ class Application:
             print(f"Namespace {self.namespace} created successfully: {create_result}")
         else:
             print(f"Namespace {self.namespace} already exists.")
+
+        # Always apply Istio injection label if enabled (even for existing namespaces)
+        if self.istio_injection_enabled:
+            label_cmd = f"kubectl label namespace {self.namespace} istio-injection=enabled --overwrite"
+            result = self.kubectl.exec_command(label_cmd)
+            print(f"Istio injection enabled for namespace {self.namespace}")
 
     def cleanup(self):
         """Delete the entire namespace for the application."""

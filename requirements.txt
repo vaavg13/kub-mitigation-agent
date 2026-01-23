@@ -16,3 +16,4 @@ locust
 gevent
 kubernetes
 dotenv
+requests

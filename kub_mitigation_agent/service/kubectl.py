@@ -95,32 +95,6 @@ class KubeCtl:
             else:
                 print(f"Error deleting namespace: {e}")
 
-    def apply_configs(self, namespace: str, config_path: str):
-        """
-        Apply Kubernetes configurations from a directory (recursively).
-        
-        Args:
-            namespace: Target namespace
-            config_path: Path to configuration files or directory
-        """
-        command = f"kubectl apply -f {config_path} -n {namespace} --recursive"
-        result = self.exec_command(command)
-        print(result)
-        return result
-
-    def delete_configs(self, namespace: str, config_path: str):
-        """
-        Delete Kubernetes configurations from a directory (recursively).
-        
-        Args:
-            namespace: Target namespace
-            config_path: Path to configuration files or directory
-        """
-        command = f"kubectl delete -f {config_path} -n {namespace} --recursive --ignore-not-found=true"
-        result = self.exec_command(command)
-        print(result)
-        return result
-
     def wait_for_ready(self, namespace: str, sleep: int = 5, max_wait: int = 300):
         """
         Wait for all pods in a namespace to be ready.

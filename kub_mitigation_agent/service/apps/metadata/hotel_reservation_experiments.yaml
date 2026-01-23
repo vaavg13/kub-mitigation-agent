@@ -1,0 +1,6 @@
+chaos_experiments:
+  pod_level:
+    pod_failure:
+      - name: "frontend-pod-failure"
+        app: "frontend"
+        target_mode: "one_pod"

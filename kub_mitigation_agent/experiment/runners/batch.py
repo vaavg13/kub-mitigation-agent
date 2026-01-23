@@ -25,8 +25,14 @@ class BatchExperimentRunner:
         self.random_seed = self.batch_settings.get("random_seed", DEFAULT_SEED)
         
         # Initialize shared services once for all experiments
-        prom_client = get_prometheus_client()
-        self.metrics = ExperimentMetrics(prom_client)
+        prom_client = get_prometheus_client(
+            self.batch_config.get("prometheus_url", "http://localhost:9090")
+        )
+        self.metrics = ExperimentMetrics(
+            prom_client,
+            ingress_workload=self.batch_config.get("istio_ingress_workload", "istio-ingress"),
+            ingress_namespace=self.batch_config.get("istio_ingress_namespace", "istio-system"),
+        )
         self.k8s_ops = k8s_module
         self.traffic_generator_factory = LocustTrafficGenerator
         self.anomaly_manager = anomaly_pkg

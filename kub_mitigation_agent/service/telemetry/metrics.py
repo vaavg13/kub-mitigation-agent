@@ -9,8 +9,15 @@ class ExperimentMetrics:
     Experiment-specific metrics collection.
     """
     
-    def __init__(self, client: PrometheusClient):
+    def __init__(
+        self,
+        client: PrometheusClient,
+        ingress_workload: str = "istio-ingress",
+        ingress_namespace: str = "istio-system",
+    ):
         self.client = client
+        self.ingress_workload = ingress_workload
+        self.ingress_namespace = ingress_namespace
 
     def get_istio_ingress_metrics(self, duration_seconds: float) -> Dict[str, Any]:
         """Get Istio ingress gateway metrics for the specified duration."""
@@ -19,22 +26,22 @@ class ExperimentMetrics:
         latency_query = f'''histogram_quantile(0.95,
             sum(rate(istio_request_duration_milliseconds_bucket{{
                 reporter="source",
-                source_workload="istio-ingressgateway",
-                source_workload_namespace="istio-system"
+                source_workload="{self.ingress_workload}",
+                source_workload_namespace="{self.ingress_namespace}"
             }}[{duration_str}]))
             by (le)
         )'''
         
         total_requests_query = f'''sum(increase(istio_requests_total{{
             reporter="source",
-            source_workload="istio-ingressgateway",
-            source_workload_namespace="istio-system"
+            source_workload="{self.ingress_workload}",
+            source_workload_namespace="{self.ingress_namespace}"
         }}[{duration_str}]))'''
         
         success_requests_query = f'''sum(increase(istio_requests_total{{
             reporter="source",
-            source_workload="istio-ingressgateway",
-            source_workload_namespace="istio-system",
+            source_workload="{self.ingress_workload}",
+            source_workload_namespace="{self.ingress_namespace}",
             response_code=~"[23].*"
         }}[{duration_str}]))'''
         
@@ -86,35 +93,35 @@ class ExperimentMetrics:
         # === INGRESS GATEWAY METRICS ===
         
         # 1. Latency P95
-        latency_query = '''histogram_quantile(0.95,
-            sum(rate(istio_request_duration_milliseconds_bucket{
+        latency_query = f'''histogram_quantile(0.95,
+            sum(rate(istio_request_duration_milliseconds_bucket{{
                 reporter="source",
-                source_workload="istio-ingressgateway",
-                source_workload_namespace="istio-system"
-            }[1m]))
+                source_workload="{self.ingress_workload}",
+                source_workload_namespace="{self.ingress_namespace}"
+            }}[1m]))
             by (le)
         )'''
         latency_data = self.client.query_range(latency_query, start_ts, end_ts, step)
         
         # 2. Total Requests
-        total_query = '''sum(rate(istio_requests_total{
+        total_query = f'''sum(rate(istio_requests_total{{
             reporter="source",
-            source_workload="istio-ingressgateway",
-            source_workload_namespace="istio-system"
-        }[1m]))'''
+            source_workload="{self.ingress_workload}",
+            source_workload_namespace="{self.ingress_namespace}"
+        }}[1m]))'''
         total_data = self.client.query_range(total_query, start_ts, end_ts, step)
         
         # 3. Success Requests (2xx/3xx)
-        success_query = '''sum(rate(istio_requests_total{
+        success_query = f'''sum(rate(istio_requests_total{{
             reporter="source",
-            source_workload="istio-ingressgateway",
-            source_workload_namespace="istio-system",
+            source_workload="{self.ingress_workload}",
+            source_workload_namespace="{self.ingress_namespace}",
             response_code=~"[23].*"
-        }[1m]))'''
+        }}[1m]))'''
         success_data = self.client.query_range(success_query, start_ts, end_ts, step)
 
         # Process Ingress Data
-        ingress_latency = self._format_timeseries(latency_data, scale=0.001) # ms -> s
+        ingress_latency = self._format_timeseries(latency_data, scale=0.001)  # ms -> s
         
         # Calculate success rate timeseries
         ingress_success_rate = []
