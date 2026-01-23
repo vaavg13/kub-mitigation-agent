@@ -1,5 +1,5 @@
 prometheus_url: http://localhost:9090
 chaosd_port: 31767
 nodes: {}
-istio_ingress_workload: istio-ingress
+istio_ingress_workload: istio-ingressgateway
 istio_ingress_namespace: istio-system
