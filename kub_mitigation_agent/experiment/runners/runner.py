@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 from datetime import datetime, timezone
 from ..core.experiment import Experiment
 import kub_mitigation_agent.service.k8s as k8s_module
@@ -15,6 +15,15 @@ from kub_mitigation_agent.service.telemetry.prometheus import get_prometheus_cli
 from ..evaluators import evaluate_metrics_recovery, evaluate_problem_location_match
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
 
+# Optional UI event emission
+try:
+    from kub_mitigation_agent.ui.events import (
+        emit_experiment_start, emit_phase, emit_agent_step, emit_experiment_end
+    )
+    UI_EVENTS_AVAILABLE = True
+except ImportError:
+    UI_EVENTS_AVAILABLE = False
+
 class ExperimentRunner:
     """Orchestrates a single chaos experiment with dependency injection."""
     
@@ -26,7 +35,8 @@ class ExperimentRunner:
         k8s_ops: Optional[Any] = None,
         traffic_generator_factory: Optional[type] = None,
         anomaly_manager: Optional[Any] = None,
-        agent_class: Optional[type] = None
+        agent_class: Optional[type] = None,
+        emit_ui_events: bool = False
     ):
         """
         Initialize experiment runner with injected dependencies.
@@ -39,9 +49,11 @@ class ExperimentRunner:
             traffic_generator_factory: Traffic generator class (defaults to LocustTrafficGenerator)
             anomaly_manager: Anomaly management module (defaults to anomaly_pkg)
             agent_class: Agent class (defaults to ReactAgent)
+            emit_ui_events: Whether to emit events for the UI server
         """
         self.exp = experiment
         self.logger = logger
+        self.emit_ui_events = emit_ui_events and UI_EVENTS_AVAILABLE
         
         # Dependency injection with defaults
         if metrics is None:
@@ -56,6 +68,11 @@ class ExperimentRunner:
 
         self._ensure_traffic_config()
     
+    def _emit_phase(self, phase_name: str, status: str, metrics: Optional[dict] = None):
+        """Emit phase event to UI if enabled."""
+        if self.emit_ui_events:
+            emit_phase(self.exp.id, phase_name, status, metrics)
+    
     async def run(self) -> Experiment:
         """
         Execute experiment phases in order.
@@ -65,6 +82,15 @@ class ExperimentRunner:
         print(f"\n{'='*70}")
         print(f"🧪 EXPERIMENT: {self.exp.id}")
         print(f"{'='*70}")
+        
+        # Emit experiment start event
+        if self.emit_ui_events:
+            chaos_config = self.exp.anomaly.get_info() if self.exp.anomaly else {}
+            emit_experiment_start(self.exp.id, {
+                "namespace": self.exp.namespace,
+                "chaos_config": chaos_config,
+                "index": self.exp.index
+            })
         
         try:
             # Run phases in order (phase functions mutate self.exp)
@@ -115,6 +141,11 @@ class ExperimentRunner:
             
             if self.logger:
                 self.logger.log_experiment(self.exp)  # Logger calls exp.to_dict() internally
+            
+            # Emit experiment end event
+            if self.emit_ui_events:
+                status = "success" if self.exp.success else ("interrupted" if self.exp.interrupted else "failed")
+                emit_experiment_end(self.exp.id, status, self.exp.operational_summary)
         
         return self.exp
 
@@ -123,6 +154,7 @@ class ExperimentRunner:
     async def phase_setup(self):
         """Pre-cleanup + deploy application."""
         print(f"\n▶ Setup")
+        self._emit_phase("setup", "started")
         
         # Stop anomalies (now handled explicitly here, not in k8s_ops)
         try:
@@ -154,6 +186,7 @@ class ExperimentRunner:
             raise Exception("Failed to deploy application")
         
         print(f"  ✅ Complete")
+        self._emit_phase("setup", "completed")
 
 
     # ========== PHASE 2: WARMUP ==========
@@ -165,6 +198,7 @@ class ExperimentRunner:
             return
         
         print(f"\n▶ Warmup ({duration}s)")
+        self._emit_phase("warmup", "started")
         
         # Instantiate traffic generator using the factory
         self.exp.traffic_generator = self.traffic_generator_factory(self.exp.config["traffic_config"])
@@ -172,6 +206,7 @@ class ExperimentRunner:
         await asyncio.sleep(duration)
         
         print(f"  ✅ Complete")
+        self._emit_phase("warmup", "completed")
 
 
     # ========== PHASE 3: BASELINE ==========
@@ -180,6 +215,7 @@ class ExperimentRunner:
         """Measure normal system performance."""
         duration = self.exp.config["baseline_duration"]
         print(f"\n▶ Baseline ({duration}s)")
+        self._emit_phase("baseline", "started")
         
         # Start traffic if not running
         if not self.exp.traffic_generator:
@@ -193,6 +229,7 @@ class ExperimentRunner:
         print(f"  ✅ {self.exp.baseline_metrics['success_rate_percent']:.1f}% success, "
             f"P95: {self.exp.baseline_metrics['p95_latency_seconds']:.3f}s, "
             f"Requests: {self.exp.baseline_metrics.get('total_requests', 0)}")
+        self._emit_phase("baseline", "completed", self.exp.baseline_metrics)
 
 
     # ========== PHASE 4: CHAOS ==========
@@ -200,6 +237,7 @@ class ExperimentRunner:
     async def phase_chaos(self):
         """Inject anomaly and measure impact."""
         print(f"\n▶ Chaos")
+        self._emit_phase("chaos", "started")
         
         # Inject anomaly
         print(f"  Injecting...", end="")
@@ -215,6 +253,7 @@ class ExperimentRunner:
         print(f"  ⚠️  {self.exp.chaos_metrics['success_rate_percent']:.1f}% success, "
             f"P95: {self.exp.chaos_metrics['p95_latency_seconds']:.3f}s, "
             f"Requests: {self.exp.chaos_metrics.get('total_requests', 0)}")
+        self._emit_phase("chaos", "completed", self.exp.chaos_metrics)
 
 
     # ========== PHASE 5: MITIGATION ==========
@@ -226,9 +265,15 @@ class ExperimentRunner:
             return
         
         print(f"\n▶ Mitigation")
+        self._emit_phase("mitigation", "started")
         
         # Initialize agent using the injected class
         agent = self.agent_class(self.exp.agent_config)
+        
+        # Set up step callback for UI events if enabled
+        if self.emit_ui_events:
+            agent.on_step_callback = self._create_step_callback()
+        
         await agent.initialize()
         
         # Prepare agent inputs (Snapshot)
@@ -258,6 +303,13 @@ class ExperimentRunner:
             end_time = time.time()
             self.exp.agent_duration_seconds = end_time - start_time
             await agent.cleanup()
+            self._emit_phase("mitigation", "completed", {"steps": len(self.exp.agent_trace)})
+    
+    def _create_step_callback(self) -> Callable:
+        """Create a callback function for emitting agent step events."""
+        def callback(step_number: int, thought: str, actions: list, observations: list):
+            emit_agent_step(self.exp.id, step_number, thought, actions, observations)
+        return callback
 
 
     # ========== PHASE 6: RECOVERY ==========
@@ -266,6 +318,7 @@ class ExperimentRunner:
         """Measure post-mitigation performance."""
         duration = self.exp.config["recovery_duration"]
         print(f"\n▶ Recovery ({duration}s)")
+        self._emit_phase("recovery", "started")
         
         await asyncio.sleep(duration)
         
@@ -274,6 +327,7 @@ class ExperimentRunner:
         print(f"  ✅ {self.exp.recovery_metrics['success_rate_percent']:.1f}% success, "
             f"P95: {self.exp.recovery_metrics['p95_latency_seconds']:.3f}s, "
             f"Requests: {self.exp.recovery_metrics.get('total_requests', 0)}")
+        self._emit_phase("recovery", "completed", self.exp.recovery_metrics)
 
 
     # ========== PHASE 7: TEARDOWN ==========

@@ -19,7 +19,8 @@ dependencies = [
     "gevent",
     "kubernetes",
     "python-dotenv",
-    "gevent"
+    "fastapi",
+    "uvicorn[standard]"
 ]
 
 [project.optional-dependencies]

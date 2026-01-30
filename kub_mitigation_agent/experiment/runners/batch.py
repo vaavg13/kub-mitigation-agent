@@ -17,10 +17,11 @@ from kub_mitigation_agent.generators.fault.anomaly_config_generator import Anoma
 class BatchExperimentRunner:
     """Coordinates multiple experiments in a batch."""
     
-    def __init__(self, batch_config: Dict[str, Any], agent_config, output_base_dir: str = "DATA"):
+    def __init__(self, batch_config: Dict[str, Any], agent_config, output_base_dir: str = "DATA", emit_ui_events: bool = False):
         self.batch_config = batch_config
         self.agent_config = agent_config
         self.output_base_dir = output_base_dir
+        self.emit_ui_events = emit_ui_events
         self.batch_settings = batch_config.get("batch_settings", {})
         self.random_seed = self.batch_settings.get("random_seed", DEFAULT_SEED)
         
@@ -93,7 +94,8 @@ class BatchExperimentRunner:
                     k8s_ops=self.k8s_ops,
                     traffic_generator_factory=self.traffic_generator_factory,
                     anomaly_manager=self.anomaly_manager,
-                    agent_class=self.agent_class
+                    agent_class=self.agent_class,
+                    emit_ui_events=self.emit_ui_events
                 )
                 try:
                     exp = await runner.run()

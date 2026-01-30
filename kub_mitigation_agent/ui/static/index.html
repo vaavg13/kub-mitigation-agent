@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Kubernetes Mitigation Agent - Live experiment trace visualization">
+    <title>KubMitigation Agent - Live Trace</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container live-mode">
+        <!-- Header -->
+        <header class="top-header">
+            <div class="header-left">
+                <span class="logo">🤖</span>
+                <h1>KubMitigation Agent</h1>
+            </div>
+            <div class="header-right">
+                <div class="connection-status">
+                    <div class="status-dot"></div>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Main Content -->
+        <main class="main-content full-width">
+            <div class="content-area" id="mainContent">
+                <div class="empty-state">
+                    <div class="empty-state-icon">⏳</div>
+                    <div class="empty-state-title">Waiting for Experiment</div>
+                    <div class="empty-state-text">
+                        The UI will update automatically when an experiment starts.
+                        <br><br>
+                        Run your experiments with the <code>--ui</code> flag to see live traces here.
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -46,6 +46,11 @@ def parse_arguments():
         default=EXPERIMENT_SETTINGS,
         help="Path to experiment settings YAML"
     )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Enable real-time UI event emission (requires UI server to be running)"
+    )
 
     return parser.parse_args()
 
@@ -106,10 +111,22 @@ async def main():
     args = parse_arguments()
     batch_config, agent_config = load_configs(args.metadata, args.experiments, args.settings)
     
+    # Start UI server if requested
+    if args.ui:
+        try:
+            from kub_mitigation_agent.ui import start_ui_server
+            start_ui_server(port=8888)
+        except ImportError as e:
+            print(f"⚠️  Could not start UI server: {e}")
+            print("   Install with: pip install fastapi uvicorn")
+        except Exception as e:
+            print(f"⚠️  Failed to start UI server: {e}")
+    
     batch_experiment = BatchExperimentRunner(
         batch_config,
         output_base_dir="DATASET_LOGS",
-        agent_config=agent_config
+        agent_config=agent_config,
+        emit_ui_events=args.ui
     )
     
     await batch_experiment.run_batch()

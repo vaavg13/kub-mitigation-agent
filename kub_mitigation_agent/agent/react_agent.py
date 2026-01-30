@@ -62,6 +62,10 @@ class ReactAgent:
 
         # Tools will be populated during initialization
         self._tools_by_name = {}
+        
+        # Optional callback for real-time step emission (for UI)
+        # Signature: callback(step_number: int, thought: str, actions: list, observations: list)
+        self.on_step_callback: Optional[callable] = None
 
     async def initialize(self):
         """Initialize MCP manager and LLM connection."""
@@ -248,6 +252,18 @@ class ReactAgent:
                         observations=step_observations
                     )
                     self._trace.append(step)
+                    
+                    # Emit step event for UI if callback is set
+                    if self.on_step_callback:
+                        try:
+                            self.on_step_callback(
+                                step.step_number,
+                                thought,
+                                step_actions,
+                                step_observations
+                            )
+                        except Exception as e:
+                            logger.warning(f"Step callback failed: {e}")
                 
                 if found_summary:
                     break
