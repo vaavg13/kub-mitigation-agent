@@ -7,7 +7,7 @@ from ..logger import SimpleExperimentLogger
 from kub_mitigation_agent.service.telemetry.metrics import ExperimentMetrics
 from kub_mitigation_agent.service.telemetry.prometheus import get_prometheus_client
 import kub_mitigation_agent.service.k8s as k8s_module
-from kub_mitigation_agent.generators.workload import LocustTrafficGenerator
+from kub_mitigation_agent.generators.workload import UERANSIMTrafficGenerator
 import kub_mitigation_agent.generators.fault as anomaly_pkg
 from kub_mitigation_agent.agent.react_agent import ReactAgent
 
@@ -35,7 +35,7 @@ class BatchExperimentRunner:
             ingress_namespace=self.batch_config.get("istio_ingress_namespace", "istio-system"),
         )
         self.k8s_ops = k8s_module
-        self.traffic_generator_factory = LocustTrafficGenerator
+        self.traffic_generator_factory = UERANSIMTrafficGenerator
         self.anomaly_manager = anomaly_pkg
         self.agent_class = ReactAgent
         

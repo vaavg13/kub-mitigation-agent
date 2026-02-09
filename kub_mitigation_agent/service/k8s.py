@@ -10,7 +10,7 @@ import logging
 from typing import Dict, Any
 from kubernetes import client, config
 from kub_mitigation_agent.service.kubectl import KubeCtl
-from kub_mitigation_agent.service.apps import HotelReservation
+from kub_mitigation_agent.service.apps import Open5GS
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,11 @@ def wait_for_pods_ready_sync(namespace: str, timeout: int = 300) -> bool:
 
 def deploy_fresh_app_sync(experiment_config):
     """
-    Deploy fresh application using new Application classes.
+    Deploy fresh application.
     
     Args:
-        experiment_config: Experiment configuration dict
+        experiment_config: Experiment configuration dict with optional 'app_class' key.
+                          If not provided, defaults to Open5GS.
         
     Returns:
         Tuple of (success: bool, namespace: str)
@@ -47,8 +48,9 @@ def deploy_fresh_app_sync(experiment_config):
     try:
         print(f"Deploying application to namespace: {namespace}...")
         
-        # Use HotelReservation app (can be extended to support other apps)
-        app = HotelReservation()
+        # Get app class from config, default to Open5GS
+        app_class = experiment_config.get("app_class", Open5GS)
+        app = app_class()
         
         # Deploy the application
         app.deploy()
@@ -63,10 +65,11 @@ def deploy_fresh_app_sync(experiment_config):
 
 def undeploy_app_sync(experiment_config):
     """
-    Undeploy application (minimal cleanup) using new Application classes.
+    Undeploy application (minimal cleanup).
     
     Args:
-        experiment_config: Experiment configuration dict
+        experiment_config: Experiment configuration dict with optional 'app_class' key.
+                          If not provided, defaults to Open5GS.
         
     Returns:
         True (always, as cleanup will happen in pre-experiment phase)
@@ -76,8 +79,9 @@ def undeploy_app_sync(experiment_config):
     try:
         print(f"Undeploying application from namespace: {namespace}...")
         
-        # Use HotelReservation app
-        app = HotelReservation()
+        # Get app class from config, default to Open5GS
+        app_class = experiment_config.get("app_class", Open5GS)
+        app = app_class()
         app.delete()
         
         print(f"✅ Application undeployed")

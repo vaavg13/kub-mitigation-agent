@@ -21,8 +21,10 @@ FAULT_GENERATORS_DIR = GENERATORS_DIR / "fault"
 WORKLOAD_GENERATORS_DIR = GENERATORS_DIR / "workload"
 
 # Specific app metadata files
-HOTEL_RESERVATION_METADATA = APP_METADATA_DIR / "hotel_reservation.json"
-HOTEL_RESERVATION_EXPERIMENTS = APP_METADATA_DIR / "hotel_reservation_experiments.yaml"
+OPEN5GS_METADATA = APP_METADATA_DIR / "open5gs.json"
+OPEN5GS_EXPERIMENTS = APP_METADATA_DIR / "open5gs_experiments.yaml"
+OPEN5GS_CORE_VALUES = APP_METADATA_DIR / "open5gs_core_values.yaml"
+OPEN5GS_UES_VALUES = APP_METADATA_DIR / "open5gs_ues_values.yaml"
 
 # Experiment settings
 EXPERIMENT_SETTINGS = BASE_DIR / "experiment_settings.yaml"

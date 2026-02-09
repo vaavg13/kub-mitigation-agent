@@ -1,8 +1,3 @@
-# Standard library imports first, BUT...
-# We need to monkey patch immediately if we are using gevent/locust
-import gevent.monkey
-gevent.monkey.patch_all()
-
 import asyncio
 import argparse
 import sys
@@ -16,8 +11,8 @@ from kub_mitigation_agent.experiment.runners.batch import BatchExperimentRunner
 from kub_mitigation_agent.agent.config import KubernetesAgentConfig
 from kub_mitigation_agent.logging_config import setup_logging
 from kub_mitigation_agent.paths import (
-    HOTEL_RESERVATION_METADATA,
-    HOTEL_RESERVATION_EXPERIMENTS,
+    OPEN5GS_METADATA,
+    OPEN5GS_EXPERIMENTS,
     EXPERIMENT_SETTINGS,
 )
 
@@ -31,13 +26,13 @@ def parse_arguments():
     parser.add_argument(
         "--metadata", "-m",
         type=Path,
-        default=HOTEL_RESERVATION_METADATA,
+        default=OPEN5GS_METADATA,
         help="Path to app metadata JSON"
     )
     parser.add_argument(
         "--experiments", "-e",
         type=Path,
-        default=HOTEL_RESERVATION_EXPERIMENTS,
+        default=OPEN5GS_EXPERIMENTS,
         help="Path to chaos experiments YAML"
     )
     parser.add_argument(

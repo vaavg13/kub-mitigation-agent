@@ -1,25 +1,20 @@
 """
 Application management package.
 
-Provides application definitions, metadata, and traffic profiles for
-microservices under test.
+Provides application definitions, metadata, and deployment management
+for applications under test.
 
 Structure:
 - base.py: Base Application class
-- hotel_reservation.py: HotelReservation app class (with deploy/undeploy)
-- metadata/: App configuration YAML files (minimal)
-- profiles/: Traffic patterns (Locust HttpUser classes)
-- registry.py: App discovery and factory
+- open5gs.py: Open5GS 5G Core app class (with deploy/undeploy)
+- metadata/: App configuration JSON and YAML files
+- profiles/: Traffic patterns (UERANSIM for 5G)
 """
 
 from .base import Application
-from .hotel_reservation import HotelReservation
-from .registry import get_app, register_app, list_apps
+from .open5gs import Open5GS
 
 __all__ = [
     "Application",
-    "HotelReservation",
-    "get_app",
-    "register_app",
-    "list_apps",
+    "Open5GS",
 ]

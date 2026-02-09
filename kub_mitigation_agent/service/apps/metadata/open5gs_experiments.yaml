@@ -1,0 +1,40 @@
+chaos_experiments:
+  pod_level:
+    # AMF (Access and Mobility Management Function) - Critical for UE registration
+    pod_failure:
+      - name: "amf-pod-failure"
+        app: "amf"
+        target_mode: "all_pods_app"
+    
+    # SMF (Session Management Function) - Critical for PDU sessions
+    # pod_failure:
+    #   - name: "smf-pod-failure"
+    #     app: "smf"
+    #     target_mode: "all_pods_app"
+    
+    # UPF (User Plane Function) - Critical for data forwarding
+    # pod_failure:
+    #   - name: "upf-pod-failure"
+    #     app: "upf"
+    #     target_mode: "all_pods_app"
+    
+    # NRF (Network Repository Function) - Service discovery
+    # pod_failure:
+    #   - name: "nrf-pod-failure"
+    #     app: "nrf"
+    #     target_mode: "all_pods_app"
+    
+    # CPU stress tests
+    # cpu_stress:
+    #   - name: "amf-cpu-stress"
+    #     app: "amf"
+    #     workers: 2
+    #     load: 100
+    #     target_mode: "one_pod"
+    
+    # Network delay tests (for inter-NF communication)
+    # network_delay:
+    #   - name: "smf-network-delay"
+    #     app: "smf"
+    #     latency: "100ms"
+    #     target_mode: "one_pod"

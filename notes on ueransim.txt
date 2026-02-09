@@ -1,0 +1,99 @@
+SETUP 5G CORE
+_____________________________________________________
+helm install open5gs oci://registry-1.docker.io/gradiantcharts/open5gs --values core.yaml
+
+SETUP UERANSIM GNB + UEs
+_____________________________________________________
+helm install ueransim oci://registry-1.docker.io/gradiant/ueransim-gnb --values ues.yaml
+
+UERANSIM
+_____________________________________________________
+
+Inside the ueransim container you can executre "nr-cli -d" to get all the UEs currently running, as well as their IMSI. The UEs have been configured not to start any PDU session automatically (this is required else they will always have at least one).
+
+"nr-cli -d"
+Lists all the available UEs
+
+"nr-cli <node-name>" attaches to the UE.
+"nr-cli <node-name> --exec <command>" executes command without attaching to UE.
+
+$ UE commands
+info           | Show some information about the UE
+status         | Show some status information about the UE
+timers         | Dump current status of the timers in the UE
+rls-state      | Show status information about RLS
+coverage       | Dump available cells and PLMNs in the coverage
+
+ps-establish   | Trigger a PDU session establishment procedure
+Trigger a PDU session establishment procedure 
+Usage:
+  ps-establish <session-type> [options]
+
+Examples:
+  ps-establish IPv4 --sst 1 --sd 1 --dnn internet
+  ps-establish IPv4 --emergency
+
+Options:
+  --sst <value>    SST value of the PDU session
+  --sd <value>     SD value of the PDU session
+  -n, --dnn <apn>  DNN/APN value of the PDU session
+  -e, --emergency  Request as an emergency session
+
+
+ps-list        | List all PDU sessions
+
+ps-release     | Trigger a PDU session release procedure
+Trigger a PDU session release procedure 
+Usage:
+  ps-release <pdu-session-id>...
+
+Example
+  ps-release 1 (The IDs are just 1,2,3 the process takes a bit)
+
+ps-release-all | Trigger PDU session release procedures for all active sessions
+
+deregister     | Perform a de-registration by the UE
+(This is wonky, doesnt work reliably as it wont remove the IMSI from the nr-cli -d list).
+
+There is NO register command, but you can use "nr-ue --config <config-file> --num-of-UE <num>" to re-register deregistered
+
+
+
+TRAFFIC SIMULATION
+________________________________
+
+For simulating traffic, can then navigate to /usr/local/bin and after giving execute permission to nr-binder, use 
+
+"./nr-binder <PDU-SESSION-IP> <COMMAND> <ARG>
+
+to use simulating tool.
+
+Example
+
+/usr/local/bin# nr-binder 10.45.0.2 iperf3 -c 10.45.0.1
+
+
+PDU-SESSIONS SIMULATION
+________________________________
+
+
+nr-cli <IMSI> -e "ps-establish IPv4 --sst 1 --sd 1 --dnn internet"
+
+nr-cli <IMSI> -e "ps-release <PDU-SESSION ID>"
+
+
+EXAMPLE
+___________________________________
+
+registered UE requests PDU session, runs a command, and then releases the PDU session.
+
+TESTED_IMSI=imsi-999700000000001
+
+nr-cli $TESTED_IMSI -e "ps-establish IPv4 --sst 1 --sd 1 --dnn internet"
+sleep 5 (need to wait a bit for the PDU session to get an IP, the establish command just triggers the event and doesnt wait for it to be finished.)
+
+PDU_SESSION_IP=$(nr-cli $TESTED_IMSI -e "ps-list" | grep "address" | awk '{print $2}')
+
+/usr/local/bin/nr-binder PDU_SESSION_IP iperf3 -c <iperf3 server ip>
+
+nr-cli $TESTED_IMSI -e "ps-release 1"

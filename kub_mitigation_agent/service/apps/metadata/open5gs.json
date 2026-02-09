@@ -1,0 +1,64 @@
+{
+    "Name": "Open5GS 5G Core",
+    "Namespace": "open5gs",
+    "Desc": "Open5GS is an open-source implementation of 5G Core and EPC. It provides AMF, SMF, UPF, NRF, AUSF, UDM, PCF, NSSF, BSF and other network functions for 5G SA (Standalone) architecture.",
+    "Supported Operations": [
+        "5G UE registration and authentication",
+        "PDU session establishment and management",
+        "Network slice selection",
+        "QoS flow management",
+        "User plane data forwarding"
+    ],
+    "Helm Config": {
+        "release_name": "open5gs",
+        "chart_path": "oci://registry-1.docker.io/gradiantcharts/open5gs",
+        "namespace": "open5gs",
+        "remote_chart": true,
+        "extra_args": [
+            "--values",
+            "kub_mitigation_agent/service/apps/metadata/open5gs_core_values.yaml"
+        ]
+    },
+    "Critical Services": [
+        "amf",
+        "smf",
+        "upf",
+        "nrf",
+        "ausf",
+        "udm",
+        "pcf",
+        "nssf"
+    ],
+    "Workload": {
+        "profile": "ueransim",
+        "type": "5g_traffic",
+        "ueransim_config": {
+            "release_name": "ueransim",
+            "chart_path": "oci://registry-1.docker.io/gradiant/ueransim-gnb",
+            "namespace": "open5gs",
+            "remote_chart": true,
+            "num_ues": 11
+        }
+    },
+    "Experiment": {
+        "test_settings": {
+            "deploy_fresh_app": true
+        },
+        "warmup_duration": 30,
+        "baseline_duration": 60,
+        "chaos_warmup_duration": 60,
+        "recovery_duration": 60,
+        "batch_settings": {
+            "random_seed": 420
+        }
+    },
+    "Istio Injection": false,
+    "5g_config": {
+        "mcc": "999",
+        "mnc": "70",
+        "sst": 1,
+        "sd": "0x111111",
+        "tac": "0001",
+        "amf_hostname": "open5gs-amf-ngap"
+    }
+}

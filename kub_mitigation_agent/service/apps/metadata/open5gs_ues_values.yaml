@@ -1,0 +1,21 @@
+# Image override for ARM64/multi-arch support
+image:
+  registry: docker.io
+  repository: openverso/ueransim
+  tag: "3.2.6"
+  pullPolicy: IfNotPresent
+
+amf:
+  hostname: open5gs-amf-ngap
+
+mcc: '999'
+mnc: '70'
+sst: 1
+sd: "0x111111"
+tac: '0001'
+
+ues:
+  enabled: true
+  count: 11
+  initialMSISDN: '0000000001'
+  apnList: []

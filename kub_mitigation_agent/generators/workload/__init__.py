@@ -1,11 +1,12 @@
 """
 Workload generation package.
 
-Provides generic workload generators that use app-specific traffic profiles.
+Provides workload generators for 5G applications:
+- UERANSIMTrafficGenerator: 5G UE simulation and traffic generation
 """
 
-from .locust_generator import LocustTrafficGenerator
+from .ueransim_generator import UERANSIMTrafficGenerator
 
 __all__ = [
-    "LocustTrafficGenerator",
+    "UERANSIMTrafficGenerator",
 ]

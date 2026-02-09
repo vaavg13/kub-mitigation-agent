@@ -4,8 +4,8 @@ from typing import Optional, Any, Callable
 from datetime import datetime, timezone
 from ..core.experiment import Experiment
 import kub_mitigation_agent.service.k8s as k8s_module
-from kub_mitigation_agent.generators.workload import LocustTrafficGenerator
-from kub_mitigation_agent.paths import HOTEL_RESERVATION_METADATA
+from kub_mitigation_agent.generators.workload import UERANSIMTrafficGenerator
+from kub_mitigation_agent.paths import OPEN5GS_METADATA
 import json
 from kub_mitigation_agent.generators.fault import cleanup_all_anomalies
 from kub_mitigation_agent.agent.react_agent import ReactAgent
@@ -46,7 +46,7 @@ class ExperimentRunner:
             logger: Optional logger instance
             metrics: Metrics service (defaults to ExperimentMetrics with Prometheus client)
             k8s_ops: K8s operations module (defaults to k8s_module)
-            traffic_generator_factory: Traffic generator class (defaults to LocustTrafficGenerator)
+            traffic_generator_factory: Traffic generator class (defaults to UERANSIMTrafficGenerator)
             anomaly_manager: Anomaly management module (defaults to anomaly_pkg)
             agent_class: Agent class (defaults to ReactAgent)
             emit_ui_events: Whether to emit events for the UI server
@@ -62,7 +62,7 @@ class ExperimentRunner:
         
         self.metrics = metrics
         self.k8s_ops = k8s_ops if k8s_ops is not None else k8s_module
-        self.traffic_generator_factory = traffic_generator_factory if traffic_generator_factory is not None else LocustTrafficGenerator
+        self.traffic_generator_factory = traffic_generator_factory if traffic_generator_factory is not None else UERANSIMTrafficGenerator
         self.anomaly_manager = anomaly_manager if anomaly_manager is not None else anomaly_pkg
         self.agent_class = agent_class if agent_class is not None else ReactAgent
 
@@ -374,13 +374,13 @@ class ExperimentRunner:
         if traffic_config.get("host"):
             return
 
-        # Default to Hotel Reservation metadata for now (avoid app init side effects)
-        with open(HOTEL_RESERVATION_METADATA, "r") as file:
+        # Default to Open5GS metadata for now (avoid app init side effects)
+        with open(OPEN5GS_METADATA, "r") as file:
             metadata = json.load(file)
         workload = metadata.get("Workload", {})
 
         self.exp.config["traffic_config"] = {
-            "workload_pattern": workload.get("profile", "hotel_reservation"),
+            "workload_pattern": workload.get("profile", "ueransim"),
             "host": workload.get("host", "http://localhost:8080"),
             "num_users": workload.get("default_users", 10),
             "spawn_rate": workload.get("spawn_rate", 2),
